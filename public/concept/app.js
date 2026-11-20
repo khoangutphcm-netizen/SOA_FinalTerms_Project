@@ -153,7 +153,7 @@ function card(p) {
  return `<article class="card"><a href="${postLink(p)}">
   <div class="visual real-cover">${cover?`<img src="/api/demo/media/${encodeURIComponent(p.cover_id)}" alt="" loading="lazy">`:`<span>${kinds.includes('Video')?'▶ Video':'Chưa có ảnh bìa'}</span>`}</div>
   <div class="card-body"><span class="category">${esc([...kinds,...(p.genres||[])].join(' · '))}</span><h3>${esc(p.title)}</h3>
-  <p>${esc(p.withdrawn_at?'Đã gỡ khỏi Khám phá':p.status==='HIDDEN'?'Không khả dụng':price(p))}</p></div></a></article>`;
+  <p>${esc(p.moderation_state==='TAKEN_DOWN'?'Đã gỡ do kiểm duyệt':p.withdrawn_at?'Đã gỡ khỏi Khám phá':p.moderation_state==='TEMP_HIDDEN'?'Tạm ẩn · Người mua vẫn xem được':p.status==='HIDDEN'?'Không khả dụng':price(p))}</p></div></a></article>`;
 }
 const grid = (posts,msg='Chưa có tác phẩm nào.') => posts.length?`<div class="grid">${posts.map(card).join('')}</div>`:empty(msg);
 const groupCards = (groups, route) => groups.length?`<div class="grid compact-collections">${groups.map(g=>`<article class="card"><a class="card-body" href="#${route}/${encodeURIComponent(g.id)}"><span class="category">${g.total} tác phẩm</span><h3>${esc(g.title)}</h3><p>${esc(g.description)}</p></a></article>`).join('')}</div>`:empty('Chưa có nội dung trong mục này.');
@@ -197,7 +197,17 @@ function genreOptions(genres,assigned=[]) {
  const choices=[...genres,...assigned.filter(item=>!genres.some(g=>g.id===item.id))];
  return '<option value="">Chưa chọn</option>'+choices.map(g=>`<option value="${esc(g.id)}" ${g.id===assigned[0]?.id?'selected':''}>${esc(g.name)}</option>`).join('');
 }
-const postStatus=p=>p.withdrawn_at?'Đã gỡ':({DRAFT:'Bản nháp',PUBLISHED:'Đã phát hành',HIDDEN:'Đang ẩn'})[p.status]||p.status;
+const postStatus=p=>p.moderation_state==='TAKEN_DOWN'?'Đã gỡ do kiểm duyệt':p.withdrawn_at?'Tác giả đã gỡ':p.moderation_state==='TEMP_HIDDEN'?'Đang ẩn tạm':({DRAFT:'Bản nháp',PUBLISHED:'Đã phát hành',HIDDEN:'Đang ẩn'})[p.status]||p.status;
+
+function moderationButtons(post) {
+ const action=(label,next)=>button(label,'admin-post',post.id,next);
+ if(post.status==='DRAFT')return '';
+ if(post.moderation_state==='TAKEN_DOWN')return action('Gỡ chặn','REINSTATE');
+ const takedown=action('Gỡ do vi phạm','TAKEDOWN');
+ if(post.status==='PUBLISHED')return action('Ẩn tạm','HIDE')+takedown;
+ if(post.moderation_state==='TEMP_HIDDEN'||!post.withdrawn_at)return action('Bỏ ẩn','RESTORE')+takedown;
+ return takedown;
+}
 function postActions(p) {
  if(!['DRAFT','PUBLISHED'].includes(p.status))return '';
  return link('Sửa bài','#edit/'+encodeURIComponent(p.id))+
@@ -327,7 +337,7 @@ async function admin(tab='overview') {
   <button class="btn dark">${event.id?'Lưu sự kiện':'Tạo sự kiện'}</button><p role="status"></p></form>`;
  const views={
   overview:()=>`<div class="stats">${[[data.totals.posts,'Tổng bài'],[data.totals.published,'Đã phát hành'],[data.totals.premium,'Premium công khai'],[data.paid,'Đơn đã thanh toán']].map(([count,label])=>`<div class="surface"><strong>${count}</strong><span>${label}</span></div>`).join('')}</div>`,
-  posts:()=>list(data.posts,p=>`<li><a href="${postLink(p)}">${esc(p.title)}</a><span>${esc(postStatus(p))}</span>${p.status==='PUBLISHED'?button('Ẩn bài','admin-post',p.id,'HIDDEN'):p.status==='HIDDEN'&&!p.withdrawn_at?button('Khôi phục','admin-post',p.id,'PUBLISHED'):''}</li>`,'Chưa có bài đăng.'),
+  posts:()=>list(data.posts,p=>`<li><a href="${postLink(p)}">${esc(p.title)}</a><span>${esc(postStatus(p))}</span>${moderationButtons(p)}</li>`,'Chưa có bài đăng.'),
   genres:()=>`<form class="surface edit-form" id="genre-form"><label>Tên thể loại<input name="name" required maxlength="60"></label><button class="btn dark">Thêm thể loại</button><p role="status"></p></form>`+
    list(data.genres,g=>`<li>${esc(g.name)}${button(g.enabled?'Tạm dừng':'Bật lại','admin-genre',g.id,!g.enabled)}</li>`,'Chưa có thể loại.'),
   events:()=>`<div class="event-editors">${eventForm()}${data.events.map(eventForm).join('')}</div>`,
@@ -464,7 +474,20 @@ app.addEventListener('click',async event=>{
    const remove=action.startsWith('un');
    await api('catalog/'+id+'/'+(remove?action.slice(2):action),{method:remove?'DELETE':'PUT'});
   }
-  if(action.startsWith('admin-'))await json(action+'/'+id,'PUT',action==='admin-genre'?{enabled:next==='true'}:{status:next});
+  if(action==='admin-post'){
+   let reason;
+   if(next==='HIDE'||next==='TAKEDOWN'){
+    const message=next==='HIDE'
+     ? 'Ẩn tạm và dừng bán. Người mua cũ vẫn xem được. Nhập lý do:'
+     : 'Gỡ do vi phạm sẽ chặn cả người đã mua. Nhập lý do để xác nhận:';
+    reason=window.prompt(message);
+    if(reason===null){control.disabled=false;return}
+   }
+   await json(action+'/'+id,'PUT',{action:next,reason});
+   notice('Đã cập nhật kiểm duyệt.');
+  }else if(action.startsWith('admin-')){
+   await json(action+'/'+id,'PUT',action==='admin-genre'?{enabled:next==='true'}:{status:next});
+  }
   render();
  }catch(error){notice(error.message);control.disabled=false}
 });

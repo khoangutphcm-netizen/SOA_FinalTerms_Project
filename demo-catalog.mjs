@@ -4,7 +4,7 @@ import { connect } from './demo-accounts.mjs';
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const localKey = /^local-demo\/([0-9a-f-]{36}\.(?:jpg|jpeg|png|mp4))$/i;
 const mediaUrl = id => '/api/demo/media/' + id;
-const postFields = 'p.id, p.author_id, p.title, p.description, p.price_vnd, p.auto_cycle, p.status, p.withdrawn_at, p.published_at, p.view_count, p.created_at';
+const postFields = 'p.id, p.author_id, p.title, p.description, p.price_vnd, p.auto_cycle, p.status, p.withdrawn_at, p.moderation_state, p.published_at, p.view_count, p.created_at';
 
 export async function withDb(name, work) {
   const client = connect(name);
@@ -41,10 +41,12 @@ async function hasEntitlement(postId, caller) {
 
 async function postById(id, caller, publishedOnly = false) {
   const [post] = await query('CONTENT', `SELECT ${postFields} FROM public.posts p WHERE id=$1`, [id]);
+  if (post?.moderation_state === 'TAKEN_DOWN') throw problem(403, 'Tác phẩm đã bị gỡ do kiểm duyệt.');
+  const retainedAccess = post?.withdrawn_at || post?.moderation_state === 'TEMP_HIDDEN';
   const allowed = post && (post.status === 'PUBLISHED' ||
-    (!publishedOnly && (post.status === 'DRAFT'||post.withdrawn_at) && post.author_id === caller?.id) ||
+    (!publishedOnly && (post.status === 'DRAFT'||retainedAccess) && post.author_id === caller?.id) ||
     (!publishedOnly && caller?.role === 'ADMIN'));
-  if (!allowed && !(post?.withdrawn_at && !publishedOnly && await hasEntitlement(post.id,caller))) {
+  if (!allowed && !(retainedAccess && !publishedOnly && await hasEntitlement(post.id,caller))) {
     throw problem(404, 'Không tìm thấy tác phẩm.');
   }
   return post;
@@ -177,7 +179,20 @@ async function publish(id, caller) {
 }
 
 async function testPurchase(id, caller, expectedPrice) {
-  const post = await postById(id,caller,true);
+  return withDb('CONTENT', async content => {
+    await content.query('BEGIN');
+    try {
+      const {rows:[post]} = await content.query(
+        "SELECT author_id, price_vnd FROM public.posts WHERE id=$1 AND status='PUBLISHED' FOR SHARE", [id]);
+      if (!post) throw problem(409, 'Tác phẩm hiện không mở bán.');
+      return await recordTestPurchase(id, caller, expectedPrice, post);
+    } finally {
+      await content.query('ROLLBACK').catch(() => {});
+    }
+  });
+}
+
+async function recordTestPurchase(id, caller, expectedPrice, post) {
   if (post.author_id===caller.id || Number(post.price_vnd)<=0) {
     throw problem(409,'Chỉ mua thử bài premium của người khác.');
   }
@@ -306,7 +321,7 @@ async function library(kind, caller) {
 
 async function adminDashboard() {
   const [posts, paid, reports, genres, events, totals] = await Promise.all([
-    query('CONTENT','SELECT id,title,status,withdrawn_at FROM public.posts ORDER BY created_at DESC,id LIMIT 50'),
+    query('CONTENT','SELECT id,title,status,withdrawn_at,moderation_state FROM public.posts ORDER BY created_at DESC,id LIMIT 50'),
     query('COMMERCE',"SELECT count(*)::int AS count FROM public.orders WHERE status='PAID'"),
     query('COMMUNITY',"SELECT id,post_id,reason FROM public.reports WHERE status='OPEN' ORDER BY created_at DESC LIMIT 50"),
     query('CONTENT','SELECT id,name,enabled FROM public.genres ORDER BY name'),
@@ -359,6 +374,35 @@ export async function setPostGenre(client, id, genreId) {
   if (genreId) await client.query('INSERT INTO public.post_genres (post_id,genre_id) VALUES ($1,$2)',[id,genreId]);
 }
 
+async function moderatePost(id, caller, input) {
+  const action = input?.action;
+  const reason = typeof input?.reason === 'string' ? input.reason.trim() : '';
+  if (!['HIDE','RESTORE','TAKEDOWN','REINSTATE'].includes(action)) throw problem(400,'Thao tác kiểm duyệt không hợp lệ.');
+  if ((['HIDE','TAKEDOWN'].includes(action) && !reason) || reason.length > 1000) {
+    throw problem(400,'Nhập lý do kiểm duyệt từ 1 đến 1000 ký tự.');
+  }
+  // Removing a takedown restores buyer access. Relisting requires a separate decision.
+  const state = {HIDE:'TEMP_HIDDEN',RESTORE:'CLEAR',TAKEDOWN:'TAKEN_DOWN',REINSTATE:'TEMP_HIDDEN'}[action];
+  const rows = await query('CONTENT', `
+    WITH changed AS (
+      UPDATE public.posts SET
+        status=CASE WHEN $2='CLEAR' AND withdrawn_at IS NULL THEN 'PUBLISHED' ELSE 'HIDDEN' END,
+        moderation_state=$2, moderation_reason=$3, moderated_by=$4, moderated_at=now()
+      WHERE id=$1 AND published_at IS NOT NULL AND (
+        ($5='HIDE' AND status='PUBLISHED' AND moderation_state='CLEAR') OR
+        ($5='RESTORE' AND status='HIDDEN' AND
+          (moderation_state='TEMP_HIDDEN' OR (moderation_state='CLEAR' AND withdrawn_at IS NULL))) OR
+        ($5='TAKEDOWN' AND moderation_state<>'TAKEN_DOWN') OR
+        ($5='REINSTATE' AND moderation_state='TAKEN_DOWN')
+      )
+      RETURNING id
+    )
+    INSERT INTO public.post_moderation_actions (post_id,actor_id,actor_kind,action,reason)
+    SELECT id,$4,'ADMIN',$5,$3 FROM changed RETURNING post_id
+  `, [id,state,reason || null,caller.id,action]);
+  if (!rows.length) throw problem(409,'Trạng thái bài không còn phù hợp. Tải lại danh sách và thử lại.');
+}
+
 async function managePost(id, caller, method, input) {
   const result = await withDb('CONTENT',async client=>{
     await client.query('BEGIN');
@@ -376,8 +420,9 @@ async function managePost(id, caller, method, input) {
           await client.query('COMMIT');
           return {status:'DELETED',keys:rows.map(row=>row.original_key)};
         }
-        if (post.status!=='PUBLISHED') throw problem(409,'Bài đang bị quản trị viên ẩn.');
+        if (post.status!=='PUBLISHED' && post.moderation_state!=='TEMP_HIDDEN') throw problem(409,'Bài đang bị quản trị viên ẩn.');
         await client.query("UPDATE public.posts SET status='HIDDEN',withdrawn_at=now() WHERE id=$1",[id]);
+        await client.query("INSERT INTO public.post_moderation_actions (post_id,actor_id,actor_kind,action) VALUES ($1,$2,'AUTHOR','WITHDRAW')",[id,caller.id]);
         await client.query('COMMIT');
         return {status:'WITHDRAWN'};
       }
@@ -491,12 +536,8 @@ export async function handleCatalog(req, res, path, send, caller, readJson) {
       if(action==='admin-genre' && typeof input?.enabled==='boolean'){
         const rows = await query('CONTENT','UPDATE public.genres SET enabled=$2 WHERE id=$1 RETURNING id',[id,input.enabled]);
         if(!rows.length) throw problem(404,'Không tìm thấy thể loại.');
-      }else if(action==='admin-post' && ['PUBLISHED','HIDDEN'].includes(input?.status)){
-        // Restore only posts that have been published at least once.
-        const rows = await query('CONTENT',`
-          UPDATE public.posts SET status=$2 WHERE id=$1 AND published_at IS NOT NULL AND withdrawn_at IS NULL
-          AND status IN ('PUBLISHED','HIDDEN') RETURNING id`,[id,input.status]);
-        if(!rows.length) throw problem(409,'Chỉ quản trị trạng thái các bài từng được phát hành.');
+      }else if(action==='admin-post'){
+        await moderatePost(id, caller, input);
       }else if(action==='admin-report' && input?.status==='DISMISSED'){
         await query('COMMUNITY',`
           UPDATE public.reports SET status='DISMISSED',resolved_by=$2,resolved_at=now() WHERE id=$1 AND status='OPEN'`,[id,caller.id]);

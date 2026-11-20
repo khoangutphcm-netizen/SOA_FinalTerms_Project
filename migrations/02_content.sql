@@ -7,11 +7,37 @@ CREATE TABLE posts (
     description text NOT NULL DEFAULT '',
     price_vnd bigint NOT NULL DEFAULT 0 CHECK (price_vnd >= 0),
     status text NOT NULL DEFAULT 'DRAFT' CHECK (status IN ('DRAFT', 'PUBLISHED', 'HIDDEN')),
+    withdrawn_at timestamptz,
+    moderation_state text NOT NULL DEFAULT 'CLEAR' CONSTRAINT posts_moderation_state_check CHECK (moderation_state IN ('CLEAR', 'TEMP_HIDDEN', 'TAKEN_DOWN')),
+    moderation_reason text,
+    moderated_at timestamptz,
+    moderated_by uuid,
     published_at timestamptz,
     view_count bigint NOT NULL DEFAULT 0 CHECK (view_count >= 0),
     created_at timestamptz NOT NULL DEFAULT now(),
     CHECK (status <> 'PUBLISHED' OR published_at IS NOT NULL)
 );
+
+CREATE TABLE post_moderation_actions (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    post_id uuid NOT NULL REFERENCES posts(id) ON DELETE RESTRICT,
+    actor_id uuid NOT NULL, -- Identity.users.id; separate database, so no cross-DB FK
+    actor_kind text NOT NULL CHECK (actor_kind IN ('AUTHOR', 'ADMIN')),
+    action text NOT NULL CHECK (action IN ('WITHDRAW', 'HIDE', 'RESTORE', 'TAKEDOWN', 'REINSTATE')),
+    reason text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    CHECK (
+        action NOT IN ('HIDE', 'TAKEDOWN')
+        OR (reason IS NOT NULL AND trim(reason) <> '')
+    ),
+    CHECK (
+        (action = 'WITHDRAW' AND actor_kind = 'AUTHOR')
+        OR (action <> 'WITHDRAW' AND actor_kind = 'ADMIN')
+    )
+);
+
+CREATE INDEX post_moderation_actions_history_idx
+    ON post_moderation_actions (post_id, created_at DESC, id);
 
 CREATE TABLE asset_formats (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
