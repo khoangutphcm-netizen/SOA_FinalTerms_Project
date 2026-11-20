@@ -309,7 +309,11 @@ async function account(tab='profile') {
   content=posts.length?`<ul class="real-list surface">${posts.map(p=>`<li><a href="${postLink(p)}"><strong>${esc(p.title)}</strong></a><span>${esc(postStatus(p))}</span><div class="button-row post-actions">${postActions(p)}</div></li>`).join('')}</ul>`:empty('Bạn chưa tải tác phẩm nào.');
  }else if(['saved','purchases'].includes(tab)){
   const {posts}=await api(tab);
-  content=grid(posts,tab==='saved'?'Bạn chưa lưu tác phẩm nào.':'Bạn chưa mua tác phẩm nào.');
+  content=tab==='saved' && posts.length
+   ? `<div class="grid">${posts.map(p=>`<div>${p.unavailable
+     ? '<div class="surface card-body">Tác phẩm này hiện không công khai.</div>'
+     : card(p)}<div class="button-row">${button('Bỏ lưu','unsave',p.id)}</div></div>`).join('')}</div>`
+   : grid(posts,tab==='saved'?'Bạn chưa lưu tác phẩm nào.':'Bạn chưa mua tác phẩm nào.');
  }
  return heading('Tài khoản',user.alias,link('Đăng tác phẩm','#upload','dark'))+`<nav class="tabs">${tabs.map(([id,label])=>`<a href="#account/${id}" class="${id===tab?'selected':''}">${label}</a>`).join('')}</nav>`+content;
 }

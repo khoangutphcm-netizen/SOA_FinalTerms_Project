@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdir, writeFile, unlink } from 'node:fs/promises';
-import { accounts, connect, passwordMatches } from './demo-accounts.mjs';
+import { connect } from './demo-accounts.mjs';
+import { callService } from './internal-services.mjs';
 import { handleCatalog, problem, removeLocalAssets, setPostGenre } from './demo-catalog.mjs';
 
 const sessions = new Map();
@@ -27,18 +28,6 @@ async function body(req, limit) {
     chunks.push(chunk);
   }
   return Buffer.concat(chunks);
-}
-
-async function userFor(id) {
-  const client = connect('IDENTITY');
-  try {
-    await client.connect();
-    const { rows } = await client.query(
-      'SELECT id, role, password_hash FROM public.users WHERE id=$1 AND status=$2', [id, 'ACTIVE']);
-    return rows[0];
-  } finally {
-    await client.end().catch(() => {});
-  }
 }
 
 async function saveUpload(userId, { title, description, genreId, price, autoCycle, files, draftId, revision }) {
@@ -154,20 +143,14 @@ export async function handleDemo(req, res, path, send) {
       if (!bytes) return send(res, 413, { message: 'Yêu cầu quá lớn.' });
       let login;
       try { login = JSON.parse(bytes.toString('utf8')); } catch {}
-      const account = accounts.find(([alias]) => alias === login?.alias);
-      if (!account || typeof login.password !== 'string' || login.password.length > 128) {
-        return send(res, 401, { message: 'Tài khoản hoặc mật khẩu không đúng.' });
-      }
-      const user = await userFor(account[1]);
-      if (!user || !passwordMatches(login.password, user.password_hash)) {
-        return send(res, 401, { message: 'Tài khoản hoặc mật khẩu không đúng.' });
-      }
+      const user = await callService('IDENTITY','login',login ?? {});
+      if (!user) return send(res,401,{message:'Tài khoản hoặc mật khẩu không đúng.'});
       for (const [key, session] of sessions) if (session.expires <= Date.now()) sessions.delete(key);
       sessions.delete(token);
       const newToken = randomBytes(32).toString('base64url');
-      sessions.set(newToken, { id: user.id, alias: account[0], role: user.role, expires: Date.now() + hour });
+      sessions.set(newToken, { id: user.id, alias: user.alias, role: user.role, expires: Date.now() + hour });
       res.setHeader('Set-Cookie', cookieName + '=' + newToken + cookieSettings + '3600');
-      return send(res, 200, { role: user.role, alias: account[0] });
+      return send(res, 200, { role: user.role, alias: user.alias });
     }
     if (!active) return send(res, 401, { message: 'Hãy đăng nhập bằng tài khoản demo.' });
     if (path === '/api/demo/posts') {

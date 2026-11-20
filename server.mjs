@@ -1,7 +1,8 @@
-import { createServer } from 'node:http';
+import { createServer, request } from 'node:http';
 import { readFile, readdir } from 'node:fs/promises';
 import { performance } from 'node:perf_hooks';
-import { handleDemo } from './demo-upload.mjs';
+import { callService, servicePort } from './internal-services.mjs';
+import { commerce } from './commerce-client.mjs';
 
 const services = Object.freeze({
   identity: 'IDENTITY_DATABASE_URL',
@@ -50,44 +51,40 @@ async function sendHero(res, path) {
   }
 }
 
-function connectionError(error) {
-  if (error.code === '28P01' || error.code === '28000') return 'Thông tin đăng nhập PostgreSQL bị từ chối.';
-  if (error.code === '3D000') return 'Database trong chuỗi kết nối không tồn tại.';
-  if (['ENOTFOUND','EAI_AGAIN','ECONNREFUSED','ENETUNREACH'].includes(error.code)) {
-    return 'Không liên lạc được với máy chủ PostgreSQL.';
-  }
-  if (/timeout|timed out/i.test(error.message)) return 'Hết thời gian chờ kết nối hoặc chạy truy vấn.';
-  return 'Không thể kết nối hoặc chạy SELECT 1. Kiểm tra cấu hình PostgreSQL, TLS và mạng.';
-}
-
 async function check(service) {
-  const variable = services[service];
-  const connectionString = process.env[variable]?.trim();
-  if (!connectionString) return { status: 'missing', message: 'Chưa cấu hình ' + variable + '.' };
-  try {
-    const url = new URL(connectionString);
-    if (!['postgres:','postgresql:'].includes(url.protocol) || !url.hostname) throw new Error();
-  } catch {
-    return { status: 'error', message: variable + ' phải là URL PostgreSQL hợp lệ.' };
-  }
-
-  let client;
   const start = performance.now();
   try {
-    const { Client } = await import('pg');
-    client = new Client({ connectionString, connectionTimeoutMillis: 7000, query_timeout: 5000 });
-    client.on('error', () => {}); // Errors already reported by connect/query must not crash the local tool.
-    await client.connect();
-    await client.query('SELECT 1');
-    return { status: 'ok', message: 'Kết nối thành công. SELECT 1 chạy được.', ms: Math.round(performance.now()-start) };
+    const result = service === 'commerce'
+      ? await commerce('/health')
+      : await callService(service.toUpperCase(),'health');
+    return {...result,ms:Math.round(performance.now()-start)};
   } catch (error) {
-    return {
-      status: 'error',
-      message: error.code === 'ERR_MODULE_NOT_FOUND' ? 'Chưa cài thư viện PostgreSQL. Chạy npm install.' : connectionError(error)
-    };
-  } finally {
-    if (client) await client.end().catch(() => {});
+    return {status:'error',message:error.message};
   }
+}
+
+function proxyContent(req,res) {
+  const headers = {};
+  for (const name of ['content-type','content-length','cookie','range','x-pck-demo']) {
+    if (req.headers[name] !== undefined) headers[name] = req.headers[name];
+  }
+  headers.authorization = 'Bearer ' + process.env.PCK_INTERNAL_TOKEN;
+  const upstream = request({
+    hostname:'127.0.0.1', port:servicePort('CONTENT'), path:req.url, method:req.method, headers
+  }, response => {
+    response.on('error', () => res.destroy());
+    res.writeHead(response.statusCode,response.headers);
+    response.pipe(res);
+  });
+  upstream.setTimeout(60000,() => upstream.destroy(new Error('Content timeout')));
+  upstream.on('error',() => {
+    req.unpipe(upstream);
+    req.resume();
+    if (res.headersSent) return res.destroy();
+    if (!res.destroyed) send(res,503,{message:'Content đang không phản hồi.'});
+  });
+  res.on('close',() => { if (!res.writableFinished) upstream.destroy(); });
+  req.pipe(upstream);
 }
 
 function send(res, status, body, type = 'application/json; charset=utf-8') {
@@ -124,7 +121,7 @@ const server = createServer(async (req, res) => {
     }
     return send(res, 200, await inFlight.get(service));
   }
-  if (path.startsWith('/api/demo/')) return handleDemo(req, res, path, send);
+  if (path.startsWith('/api/demo/')) return proxyContent(req, res);
   send(res, 404, { message: 'Không tìm thấy đường dẫn.' });
 });
 const port = Number(process.env.PORT || 3100);

@@ -1,3 +1,5 @@
+import { callService } from './internal-services.mjs';
+import { commerce } from './commerce-client.mjs';
 import { access, readFile, unlink } from 'node:fs/promises';
 import { connect } from './demo-accounts.mjs';
 
@@ -34,9 +36,7 @@ export async function removeLocalAssets(keys) {
 
 async function hasEntitlement(postId, caller) {
   if (!caller) return false;
-  const [right] = await query('COMMERCE',
-    'SELECT 1 FROM public.entitlements WHERE buyer_id=$1 AND post_id=$2', [caller.id, postId]);
-  return Boolean(right);
+  return (await commerce('/entitlement?' + new URLSearchParams({buyerId:caller.id, postId}))).allowed;
 }
 
 async function postById(id, caller, publishedOnly = false) {
@@ -185,67 +185,30 @@ async function testPurchase(id, caller, expectedPrice) {
       const {rows:[post]} = await content.query(
         "SELECT author_id, price_vnd FROM public.posts WHERE id=$1 AND status='PUBLISHED' FOR SHARE", [id]);
       if (!post) throw problem(409, 'Tác phẩm hiện không mở bán.');
-      return await recordTestPurchase(id, caller, expectedPrice, post);
+      if (post.author_id === caller.id || Number(post.price_vnd) <= 0) throw problem(409,'Chỉ mua thử bài premium của người khác.');
+      if (expectedPrice !== Number(post.price_vnd)) throw problem(409,'Giá đã thay đổi. Tải lại bài để xác nhận.');
+      return await commerce('/test-purchase', {buyerId:caller.id, postId:id, price:expectedPrice, authorId:post.author_id});
     } finally {
       await content.query('ROLLBACK').catch(() => {});
     }
   });
 }
 
-async function recordTestPurchase(id, caller, expectedPrice, post) {
-  if (post.author_id===caller.id || Number(post.price_vnd)<=0) {
-    throw problem(409,'Chỉ mua thử bài premium của người khác.');
-  }
-  return withDb('COMMERCE',async client=>{
-    await client.query('BEGIN');
-    try {
-      await client.query('SELECT pg_advisory_xact_lock(hashtext($1),hashtext($2))',[caller.id,id]);
-      const {rows:[existing]}=await client.query(`
-        SELECT o.id,o.status FROM public.entitlements e JOIN public.orders o ON o.id=e.source_order_id
-        WHERE e.buyer_id=$1 AND e.post_id=$2`,[caller.id,id]);
-      if(existing){await client.query('COMMIT');return {...existing,reused:true};}
-      if (expectedPrice !== Number(post.price_vnd)) throw problem(409,'Giá đã thay đổi. Tải lại bài để xác nhận.');
-      const {rows:[order]}=await client.query(`
-        INSERT INTO public.orders (buyer_id,post_id,amount_vnd,provider,expires_at)
-        VALUES ($1,$2,$3,'PCK_TEST',now()+interval '15 minutes')
-        ON CONFLICT (buyer_id,post_id) WHERE status='PENDING' DO NOTHING RETURNING id`,[caller.id,id,post.price_vnd]);
-      if(!order)throw problem(409,'Đã có một đơn đang chờ cho bài này.');
-      await client.query(`
-        INSERT INTO public.payment_events (order_id,provider,event_key,payload)
-        VALUES ($1,'PCK_TEST',$2,'{"mode":"test","result":"success"}'::jsonb)`,[order.id,'pck-test:'+order.id]);
-      await client.query("UPDATE public.orders SET status='PAID',paid_at=now(),provider_transaction_id=$2 WHERE id=$1",
-        [order.id,'pck-test:'+order.id]);
-      await client.query('INSERT INTO public.entitlements (buyer_id,post_id,source_order_id) VALUES ($1,$2,$3)',[caller.id,id,order.id]);
-      await client.query('COMMIT');
-      return {id:order.id,status:'PAID',reused:false};
-    } catch(error){await client.query('ROLLBACK').catch(()=>{});throw error}
-  });
-}
-
 async function community(path, req, caller, id, readJson) {
   const action = path.split('/').at(-1);
+  const {method} = req;
+  const input = {action,method,id,userId:caller.id};
   if (['like','save'].includes(action)) {
-    const table = action === 'like' ? 'likes' : 'saved_posts';
-    if (req.method === 'PUT') {
-      await postById(id, caller, true);
-      await query('COMMUNITY', `INSERT INTO public.${table} (user_id,post_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [caller.id,id]);
-    } else if (req.method === 'DELETE') {
-      await query('COMMUNITY', `DELETE FROM public.${table} WHERE user_id=$1 AND post_id=$2`, [caller.id,id]);
-    } else throw problem(405, 'Phương thức không hợp lệ.');
-    return { active: req.method === 'PUT' };
-  }
-  if (req.method !== 'POST') throw problem(405, 'Dùng POST.');
-  await postById(id, caller, true);
-  const input = await readJson(req);
-  const content = typeof input?.text === 'string' ? input.text.trim() : '';
-  if (!content || content.length > 1000) throw problem(400, 'Nhập nội dung từ 1 đến 1000 ký tự.');
-  if (action === 'comments') {
-    await query('COMMUNITY','INSERT INTO public.comments (author_id,post_id,body) VALUES ($1,$2,$3)',[caller.id,id,content]);
+    if (!['PUT','DELETE'].includes(method)) throw problem(405,'Phương thức không hợp lệ.');
+    if (method === 'PUT') await postById(id,caller,true);
   } else {
-    await query('COMMUNITY',`INSERT INTO public.reports (reporter_id,post_id,reason) VALUES ($1,$2,$3)
-      ON CONFLICT (reporter_id,post_id) WHERE status='OPEN' DO NOTHING`,[caller.id,id,content]);
+    if (method !== 'POST') throw problem(405,'Dùng POST.');
+    await postById(id,caller,true);
+    const body = await readJson(req);
+    input.content = typeof body?.text === 'string' ? body.text.trim() : '';
+    if (!input.content || input.content.length > 1000) throw problem(400,'Nhập nội dung từ 1 đến 1000 ký tự.');
   }
-  return {saved:true};
+  return callService('COMMUNITY','interact',input);
 }
 
 async function detail(id, caller) {
@@ -253,18 +216,9 @@ async function detail(id, caller) {
   const media = await postMedia(post,caller);
   const canManage=post.author_id===caller?.id&&['DRAFT','PUBLISHED'].includes(post.status);
   if (post.status !== 'PUBLISHED') return {post,media,canManage,canPublish:post.status==='DRAFT'&&canManage,comments:[],likes:0,liked:false,saved:false};
-  const [comments, reaction] = await withDb('COMMUNITY',async client => {
-    const comments = await client.query(`
-      SELECT id,author_id,body,created_at FROM public.comments
-      WHERE post_id=$1 AND deleted_at IS NULL ORDER BY created_at DESC,id LIMIT 50`, [id]);
-    const {rows:[reaction]} = await client.query(`
-      SELECT (SELECT count(*)::int FROM public.likes WHERE post_id=$1) AS likes,
-        EXISTS(SELECT 1 FROM public.likes WHERE post_id=$1 AND user_id=$2) AS liked,
-        EXISTS(SELECT 1 FROM public.saved_posts WHERE post_id=$1 AND user_id=$2) AS saved`, [id,caller?.id || null]);
-    return [comments.rows,reaction];
-  });
+  const {comments,reaction} = await callService('COMMUNITY','detail',{id,userId:caller?.id || null});
   const ids = [...new Set([post.author_id,...comments.map(c=>c.author_id)])];
-  const users = await query('IDENTITY','SELECT id,display_name FROM public.users WHERE id=ANY($1::uuid[])',[ids]);
+  const users = await callService('IDENTITY','names',{ids});
   const names = new Map(users.map(user=>[user.id,user.display_name]));
   return {post:{...post,author:names.get(post.author_id)},media,canManage,
     comments:comments.map(c=>({id:c.id,body:c.body,created_at:c.created_at,author:names.get(c.author_id)})),...reaction};
@@ -311,19 +265,21 @@ async function createCollection(caller, input) {
 
 async function library(kind, caller) {
   const rows = kind === 'saved'
-    ? await query('COMMUNITY','SELECT post_id FROM public.saved_posts WHERE user_id=$1 ORDER BY saved_at DESC LIMIT 50',[caller.id])
-    : await query('COMMERCE','SELECT post_id FROM public.entitlements WHERE buyer_id=$1 ORDER BY granted_at DESC LIMIT 50',[caller.id]);
+    ? await callService('COMMUNITY','saved',{userId:caller.id})
+    : await commerce('/purchases?' + new URLSearchParams({buyerId:caller.id}));
   const posts = await query('CONTENT', withCoverKind(`SELECT ${postFields}, ${coverColumns} FROM public.posts p
     WHERE p.id=ANY($1::uuid[]) AND ($2 OR p.status='PUBLISHED')`),[rows.map(row=>row.post_id),kind==='purchases']);
   const byId = new Map(posts.map(post=>[post.id,post]));
-  return rows.map(row=>byId.get(row.post_id) || (kind==='purchases' ? {id:row.post_id,title:'Tác phẩm không khả dụng',status:'HIDDEN'} : null)).filter(Boolean);
+  return rows.map(row=>byId.get(row.post_id) || {
+    id:row.post_id, title:'Tác phẩm không khả dụng', status:'HIDDEN', unavailable:true
+  });
 }
 
 async function adminDashboard() {
   const [posts, paid, reports, genres, events, totals] = await Promise.all([
     query('CONTENT','SELECT id,title,status,withdrawn_at,moderation_state FROM public.posts ORDER BY created_at DESC,id LIMIT 50'),
-    query('COMMERCE',"SELECT count(*)::int AS count FROM public.orders WHERE status='PAID'"),
-    query('COMMUNITY',"SELECT id,post_id,reason FROM public.reports WHERE status='OPEN' ORDER BY created_at DESC LIMIT 50"),
+    commerce('/paid-count'),
+    callService('COMMUNITY','reports'),
     query('CONTENT','SELECT id,name,enabled FROM public.genres ORDER BY name'),
     query('CONTENT',`SELECT e.id,e.title,e.description,e.enabled,
       ARRAY(SELECT post_id FROM public.homepage_event_items WHERE event_id=e.id ORDER BY position) AS posts
@@ -333,7 +289,7 @@ async function adminDashboard() {
       count(*) FILTER (WHERE status='PUBLISHED' AND price_vnd>0)::int AS premium
       FROM public.posts`)
   ]);
-  return {posts,paid:paid[0].count,reports,genres,events,totals:totals[0]};
+  return {posts,paid:paid.count,reports,genres,events,totals:totals[0]};
 }
 
 async function saveEvent(id, input) {
@@ -539,8 +495,7 @@ export async function handleCatalog(req, res, path, send, caller, readJson) {
       }else if(action==='admin-post'){
         await moderatePost(id, caller, input);
       }else if(action==='admin-report' && input?.status==='DISMISSED'){
-        await query('COMMUNITY',`
-          UPDATE public.reports SET status='DISMISSED',resolved_by=$2,resolved_at=now() WHERE id=$1 AND status='OPEN'`,[id,caller.id]);
+        await callService('COMMUNITY','dismiss',{id,userId:caller.id});
       }else throw problem(400,'Thao tác không hợp lệ.');
       return send(res,200,{saved:true});
     }
