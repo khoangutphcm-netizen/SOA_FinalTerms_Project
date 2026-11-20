@@ -1,0 +1,7 @@
+.env
+.env.*
+!.env.example
+node_modules/
+.npm-cache/
+/db_connection_string.txt
+/.pck-demo/

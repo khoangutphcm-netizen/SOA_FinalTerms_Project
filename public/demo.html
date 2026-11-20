@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="vi">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PCK · Upload demo</title>
+<style>
+body{background:#f3f6fa;color:#192635;font:16px system-ui,sans-serif;margin:auto;max-width:650px;padding:28px}
+form{background:white;border:1px solid #d9e1ea;border-radius:12px;padding:18px;margin:16px 0;display:grid;gap:12px}
+form[hidden]{display:none}label{display:grid;gap:5px}input,select,button{font:inherit;padding:8px;max-width:100%}button{justify-self:start}
+p{overflow-wrap:anywhere}a{color:#1b3659}
+</style>
+<script defer src="/demo.js"></script>
+<main>
+<a href="/">← Kiểm tra kết nối DB</a>
+<h1>PCK · Upload demo</h1>
+<form id="login">
+<label>Tài khoản<select name="alias"><option>user1</option><option>user2</option><option>user3</option><option>admin</option></select></label>
+<label>Mật khẩu demo<input type="password" name="password" required maxlength="128" autocomplete="current-password"></label>
+<button>Đăng nhập</button>
+</form>
+<p id="login-result" role="status"></p>
+<form id="upload" hidden>
+<label>Tiêu đề<input name="title" required maxlength="100"></label>
+<label>Tệp JPG, PNG hoặc MP4, tối đa 10 MB<input type="file" name="file" accept=".jpg,.jpeg,.png,.mp4" required></label>
+<button>Tải lên và lưu nháp</button>
+</form>
+<p id="upload-result" role="status"></p>
+</main>

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PCK · Kiểm tra kết nối DB</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#f3f6fa;color:#192635;font:16px system-ui,sans-serif}
+  main{max-width:780px;margin:auto;padding:48px 20px}
+  header{margin-bottom:26px}
+  h1{margin:0 0 10px;font-size:clamp(26px,5vw,38px)}
+  p{line-height:1.55;color:#526175}
+  ul{list-style:none;padding:0;display:grid;gap:12px}
+  li{background:white;border:1px solid #d9e1ea;border-radius:14px;padding:18px}
+  .row{display:flex;justify-content:space-between;align-items:center;gap:12px}
+  h2{font-size:18px;margin:0}
+  li p{margin:10px 0 0}
+  button{font:inherit;font-weight:650;padding:9px 14px;border-radius:9px;border:1px solid #c8d4e2;background:white;color:#1b3659;cursor:pointer}
+  #all{background:#1b3659;color:white;border-color:#1b3659}
+  button:disabled{opacity:.55;cursor:wait}
+  .ok{color:#176343}.error{color:#9b3030}.missing{color:#795112}
+  code{overflow-wrap:anywhere}
+</style>
+<script defer src="/app.js"></script>
+</head>
+<body>
+<main>
+  <header>
+    <h1>PCK · Kiểm tra kết nối DB</h1>
+    <p>Chạy <code>SELECT 1</code> trên PostgreSQL của từng service. Chuỗi kết nối được đọc từ máy chủ.</p>
+    <button id="all" type="button">Kiểm tra tất cả</button>
+    <a href="/demo">Mở upload demo ↗</a>
+  </header>
+  <ul id="services"></ul>
+</main>
+</body>
+</html>
