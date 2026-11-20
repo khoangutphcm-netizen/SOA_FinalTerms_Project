@@ -138,7 +138,7 @@ export async function handleDemo(req, res, path, send) {
   if (draftId && !uuid.test(draftId)) return send(res,404,{message:'Không tìm thấy bản nháp.'});
   const method = draftId ? 'PUT' : {
     '/api/demo/session':'GET', '/api/demo/posts':'GET', '/api/demo/login':'POST',
-    '/api/demo/register':'POST',
+    '/api/demo/register':'POST', '/api/demo/verify':'POST', '/api/demo/resend':'POST',
     '/api/demo/logout':'POST', '/api/demo/upload':'POST'
   }[path];
   if (!method) return handleCatalog(req, res, path, send, active, readJson);
@@ -152,12 +152,14 @@ export async function handleDemo(req, res, path, send) {
       res.setHeader('Set-Cookie', cookieName + '=' + cookieSettings + '0');
       return send(res, 200, { user: null });
     }
-    if (path === '/api/demo/login' || path === '/api/demo/register') {
+    if (['/api/demo/login','/api/demo/register','/api/demo/verify','/api/demo/resend'].includes(path)) {
       const bytes = await body(req, 4096);
       if (!bytes) return send(res, 413, { message: 'Yêu cầu quá lớn.' });
       let login;
       try { login = JSON.parse(bytes.toString('utf8')); } catch {}
-      const user = await callService('IDENTITY',path.endsWith('/register')?'register':'login',login ?? {});
+      const operation = path.split('/').at(-1);
+      const user = await callService('IDENTITY',operation,login ?? {}, {timeoutMs: operation === 'register' || operation === 'resend' ? 60000 : 25000});
+      if (operation !== 'login') return send(res,200,user);
       if (!user) return send(res,401,{message:'Tài khoản hoặc mật khẩu không đúng.'});
       for (const [key, session] of sessions) if (session.expires <= Date.now()) sessions.delete(key);
       sessions.delete(token);

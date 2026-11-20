@@ -3,7 +3,14 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22" },
-  "scripts": { "start": "node --env-file-if-exists=.env start.mjs" },
-  "dependencies": { "pg": "^8.16.3" }
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env start.mjs"
+  },
+  "dependencies": {
+    "nodemailer": "^10.6.1",
+    "pg": "^8.16.3"
+  }
 }

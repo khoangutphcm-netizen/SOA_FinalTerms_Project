@@ -6,14 +6,14 @@ PCK là đồ án cuối kỳ SOA. Khách duyệt ảnh và video, tác giả đ
 
 Web nhận yêu cầu tại cổng 3100 và chuyển API ứng dụng tới Content. Bốn service chạy ở bốn tiến trình riêng và mỗi service dùng kết nối Neon của mình.
 
-| Service | Cổng mặc định | Phụ trách |
-|---|---:|---|
-| Commerce | 3101 | Mua thử, đơn hàng và quyền xem Premium |
-| Content | 3102 | Bài đăng, tệp, tìm kiếm và kiểm duyệt |
-| Identity | 3103 | Xác thực tài khoản demo và thông tin người dùng |
-| Community | 3104 | Thích, bình luận, báo cáo và Xem sau |
+| Service   | Cổng mặc định | Phụ trách                                       |
+| --------- | ------------: | ----------------------------------------------- |
+| Commerce  |          3101 | Mua thử, đơn hàng và quyền xem Premium          |
+| Content   |          3102 | Bài đăng, tệp, tìm kiếm và kiểm duyệt           |
+| Identity  |          3103 | Xác thực tài khoản demo và thông tin người dùng |
+| Community |          3104 | Thích, bình luận, báo cáo và Xem sau            |
 
-Content gọi các service khác qua HTTP nội bộ. Người dùng tự đăng ký và đăng nhập bằng email. Tài khoản mới lưu trạng thái chờ xác minh và được đăng nhập trong bản hiện tại. Phiên lưu trong bộ nhớ và mua thử dùng `PCK_TEST`. OTP email, thanh toán QR sandbox và kho tệp dùng chung chưa được tích hợp. Tệp tải lên nằm trong `.pck-demo/uploads/` của máy chạy Content.
+Content gọi các service khác qua HTTP nội bộ. Người dùng đăng ký bằng email và phải xác minh OTP trước khi đăng nhập. Phiên lưu trong bộ nhớ và mua thử dùng `PCK_TEST`. Thanh toán QR sandbox và kho tệp dùng chung chưa được tích hợp. Tệp tải lên nằm trong `.pck-demo/uploads/` của máy chạy Content.
 
 ## Cách chạy
 
@@ -22,6 +22,12 @@ Content gọi các service khác qua HTTP nội bộ. Người dùng tự đăng
 3. Nếu dùng DB trống riêng, chạy `node --env-file=.env migrate.mjs --apply`, rồi `node --env-file=.env migrate-gallery.mjs`. Nếu dùng branch cũ thiếu bảng kiểm duyệt, áp dụng [migration kiểm duyệt](migrations/07_content_moderation.sql) trên Content DB.
 4. Tạo tài khoản trên màn chào. Nếu cần tài khoản admin demo trên DB riêng, chạy `node --env-file=.env seed-demo.mjs` rồi lấy thông tin ở `.pck-demo/accounts.json`.
 5. Chạy `npm start`. Mở [PCK](http://127.0.0.1:3100/demo) hoặc [Kiểm tra kết nối DB](http://127.0.0.1:3100/db-check). Dừng bằng Ctrl+C. Nếu cần đổi cổng, dùng `PORT` cho web hoặc `COMMERCE_PORT`, `CONTENT_PORT`, `IDENTITY_PORT`, `COMMUNITY_PORT` cho từng service.
+
+### Xác minh email
+
+Điền `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` trong `.env`. Dùng `SMTP_SECURE=1` với SMTP TLS trực tiếp (thường cổng 465), hoặc `0` với STARTTLS (thường cổng 587). Đặt `PCK_OTP_SECRET` thành chuỗi ngẫu nhiên ít nhất 32 ký tự và giữ bí mật, ổn định giữa các lần chạy. Tạo chuỗi bằng `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Không đưa các giá trị này lên Git.
+
+Mã gồm 6 chữ số, hết hạn sau 10 phút và bị khóa sau 5 lần nhập sai. Có thể gửi mã mới sau 60 giây. Tài khoản cũ đang chờ xác minh dùng liên kết xác minh trên màn đăng nhập để yêu cầu mã. Nếu gửi email thất bại, kiểm tra cấu hình SMTP rồi thử lại.
 
 ### Preview Premium
 

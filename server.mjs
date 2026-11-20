@@ -136,7 +136,7 @@ const server = createServer(async (req, res) => {
   }
   if (path.startsWith('/api/demo/')) {
     if (req.method==='POST' && req.headers['x-pck-demo']==='1' &&
-        ['/api/demo/login','/api/demo/register'].includes(path) && !allowAuth(path)) {
+        ['/api/demo/login','/api/demo/register','/api/demo/verify','/api/demo/resend'].includes(path) && !allowAuth(path)) {
       res.setHeader('Retry-After','60');
       return send(res,429,{message:'Có quá nhiều yêu cầu. Hãy thử lại sau một phút.'});
     }
