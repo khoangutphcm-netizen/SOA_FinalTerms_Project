@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { performance } from 'node:perf_hooks';
 import { handleDemo } from './demo-upload.mjs';
 
@@ -27,17 +27,27 @@ const heroFormats = [
   ['png', 'image/png'],
   ['avif', 'image/avif']
 ];
+const heroFolder = new URL('./public/assets/hero/', import.meta.url);
 
-async function sendHero(res) {
-  for (const [extension, type] of heroFormats) {
-    try {
-      const file = new URL('./public/assets/hero/banner.' + extension, import.meta.url);
-      return send(res, 200, await readFile(file), type);
-    } catch (error) {
-      if (error.code !== 'ENOENT') return send(res, 500, {message: 'Không đọc được ảnh banner.'});
+async function sendHero(res, path) {
+  try {
+    const files = (await readdir(heroFolder, {withFileTypes:true}))
+      .filter(entry => entry.isFile() && heroFormats.some(([extension]) => entry.name.toLowerCase().endsWith('.' + extension)))
+      .map(entry => entry.name)
+      .sort((a,b) => a.localeCompare(b,'vi',{numeric:true}));
+    const images = files.map(name => '/assets/hero/image/' + encodeURIComponent(name));
+    if (path === '/assets/hero/images') return send(res, 200, {images});
+    const index = path === '/assets/hero/banner' ? 0 : images.indexOf(path);
+    const file = files[index];
+    if (!file) return send(res, 404, {message:'Không tìm thấy ảnh banner.'});
+    const [, type] = heroFormats.find(([extension]) => file.toLowerCase().endsWith('.' + extension));
+    return send(res, 200, await readFile(new URL(encodeURIComponent(file), heroFolder)), type);
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      return path === '/assets/hero/images' ? send(res, 200, {images:[]}) : send(res, 404, {message:'Không tìm thấy ảnh banner.'});
     }
+    return send(res, 500, {message:'Không đọc được ảnh banner.'});
   }
-  return send(res, 404, {message: 'Chưa có ảnh banner.'});
 }
 
 function connectionError(error) {
@@ -85,14 +95,16 @@ function send(res, status, body, type = 'application/json; charset=utf-8') {
     'Content-Type': type,
     'Cache-Control': 'no-store',
     'X-Content-Type-Options': 'nosniff',
-    'Content-Security-Policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'"
+    'Content-Security-Policy': "default-src 'self'; img-src 'self' blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'"
   });
   res.end(type.startsWith('application/json') ? JSON.stringify(body) : body);
 }
 
 const server = createServer(async (req, res) => {
   const path = (req.url || '/').split('?')[0];
-  if (req.method === 'GET' && path === '/assets/hero/banner') return sendHero(res);
+  if (req.method === 'GET' && (path === '/assets/hero/banner' || path === '/assets/hero/images' || path.startsWith('/assets/hero/image/'))) {
+    return sendHero(res, path);
+  }
   if (req.method === 'GET' && Object.hasOwn(assets, path)) {
     const [file, type] = assets[path];
     try {

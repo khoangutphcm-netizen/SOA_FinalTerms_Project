@@ -34,7 +34,7 @@ input:not([type=checkbox]),select,textarea{min-width:0;background:white;border:1
 .hero::before{
   background:
     linear-gradient(90deg,rgba(13,23,17,.85),rgba(13,23,17,.12) 85%),
-    url('/assets/hero/banner') center / cover no-repeat,
+    var(--hero-image, none) center / cover no-repeat,
     radial-gradient(ellipse at 85% 20%,#667843 0%,transparent 58%),
     linear-gradient(120deg,#17231d,#263b30);
 }
@@ -42,7 +42,7 @@ input:not([type=checkbox]),select,textarea{min-width:0;background:white;border:1
   .hero::before{
     background:
       linear-gradient(0deg,rgba(13,23,17,.88),rgba(13,23,17,.14) 82%),
-      url('/assets/hero/banner') center / cover no-repeat,
+      var(--hero-image, none) center / cover no-repeat,
       radial-gradient(ellipse at 85% 20%,#667843 0%,transparent 58%),
       linear-gradient(120deg,#17231d,#263b30);
   }
@@ -50,12 +50,47 @@ input:not([type=checkbox]),select,textarea{min-width:0;background:white;border:1
 .real-cover{display:grid;place-items:center;color:#3b503b;background:#e9eee5}
 .real-cover img{grid-area:1/1}
 .media-stage{color:#fff}
+.gallery-slide{animation:gallery-slide-in .38s cubic-bezier(.22,.7,.25,1) both}
+.gallery-slide-forward{--gallery-slide-start:24px}
+.gallery-slide-back{--gallery-slide-start:-24px}
+@keyframes gallery-slide-in{
+ from{opacity:.25;transform:translateX(var(--gallery-slide-start))}
+ to{opacity:1;transform:translateX(0)}
+}
+@media(prefers-reduced-motion:reduce){.gallery-slide{animation:none}}
 .media-thumbs [aria-pressed=true]{outline:2px solid #748c22;outline-offset:-2px}
 .real-list{list-style:none;padding:12px 20px}
 .real-list li{display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:12px 0;border-bottom:1px solid var(--line)}
 .real-list li:last-child{border-bottom:0}
+.post-actions{margin-top:6px}
+.post-actions [data-action="remove-post"]{background:#fff0ed;color:#963c29}
 .real-list li>a:first-child,.real-list li>strong:first-child{flex:1 1 150px}
 .pagination{margin-top:18px}
+.upload-form{max-width:920px}
+.upload-fields{display:grid;gap:18px;border:0;margin:0;padding:0;min-inline-size:0}
+.upload-drop{display:grid;justify-items:center;gap:8px;text-align:center;padding:25px 18px;border:2px dashed #bac5a8;border-radius:14px;background:#f5f8ef;color:#334334}
+.upload-drop.drag-active{border-color:#697f2e;background:#eaf1d8}
+.upload-drop small,.upload-list-head span,.upload-file-meta small,.upload-price small{color:var(--muted)}
+.upload-list-head{display:flex;gap:10px;align-items:center;justify-content:space-between}
+.upload-feedback{margin:0;color:#8b430d;font-size:14px}
+.upload-feedback:empty,#upload-files:empty{display:none}
+.upload-files{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,235px),1fr));gap:12px}
+.upload-file{border:1px solid var(--line);border-radius:13px;overflow:hidden;background:#fff;min-width:0}
+.upload-preview{position:relative;aspect-ratio:16/10;background:#edf1eb}
+.upload-preview img,.upload-preview video{display:block;width:100%;height:100%;object-fit:contain}
+.upload-chip{position:absolute;left:8px;top:8px;background:#fff;border-radius:20px;padding:4px 8px;font-size:12px;font-weight:700;pointer-events:none}
+.upload-file-meta{display:grid;gap:4px;padding:10px 12px}
+.upload-file-meta strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.upload-file-actions{display:flex;flex-wrap:wrap;gap:6px;padding:0 12px 9px}
+.upload-file-actions .btn{padding:8px 10px}
+.upload-file-actions [aria-pressed="true"]{background:#e7f1cc;color:#304514}
+.edit-form label.upload-switch{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:9px 12px;border-top:1px solid var(--line)}
+.upload-switch input{accent-color:#405d28}
+.upload-switch small{font-weight:400;color:var(--muted)}
+.upload-price{display:grid;grid-template-columns:minmax(0,290px) 1fr;gap:8px 12px;padding:14px 16px;border:1px solid #c7d4ad;border-radius:12px;background:#f5f8ef}
+.upload-price[hidden]{display:none}
+.upload-price small{grid-column:1/-1}
+.upload-price output{align-self:end;padding-bottom:11px;font-weight:700}
 .media-stage{aspect-ratio:4/3;display:grid;place-items:center;background:#1d251f}
 .media-stage>img,.media-stage>video{display:block;width:100%;height:100%;min-height:0;max-height:none;object-fit:contain}
 .media-stage>.locked-poster{object-fit:cover;filter:blur(22px) brightness(.44);transform:scale(1.1)}

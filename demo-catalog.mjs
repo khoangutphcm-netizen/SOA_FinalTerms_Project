@@ -1,10 +1,10 @@
-import { readFile } from 'node:fs/promises';
+import { access, readFile, unlink } from 'node:fs/promises';
 import { connect } from './demo-accounts.mjs';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const localKey = /^local-demo\/([0-9a-f-]{36}\.(?:jpg|jpeg|png|mp4))$/i;
 const mediaUrl = id => '/api/demo/media/' + id;
-const postFields = 'p.id, p.author_id, p.title, p.description, p.price_vnd, p.status, p.published_at, p.view_count, p.created_at';
+const postFields = 'p.id, p.author_id, p.title, p.description, p.price_vnd, p.auto_cycle, p.status, p.withdrawn_at, p.published_at, p.view_count, p.created_at';
 
 export async function withDb(name, work) {
   const client = connect(name);
@@ -21,26 +21,39 @@ export function query(name, sql, params = []) {
   return withDb(name, async client => (await client.query(sql, params)).rows);
 }
 
-function problem(status, message) {
+export function problem(status, message) {
   return Object.assign(new Error(message), { status });
+}
+
+export async function removeLocalAssets(keys) {
+  await Promise.all(keys.map(async key=>{
+    const file=key.match(localKey)?.[1];
+    if(file) await unlink(new URL('./.pck-demo/uploads/'+file,import.meta.url)).catch(()=>{});
+  }));
+}
+
+async function hasEntitlement(postId, caller) {
+  if (!caller) return false;
+  const [right] = await query('COMMERCE',
+    'SELECT 1 FROM public.entitlements WHERE buyer_id=$1 AND post_id=$2', [caller.id, postId]);
+  return Boolean(right);
 }
 
 async function postById(id, caller, publishedOnly = false) {
   const [post] = await query('CONTENT', `SELECT ${postFields} FROM public.posts p WHERE id=$1`, [id]);
   const allowed = post && (post.status === 'PUBLISHED' ||
-    (!publishedOnly && post.status === 'DRAFT' && post.author_id === caller?.id) ||
+    (!publishedOnly && (post.status === 'DRAFT'||post.withdrawn_at) && post.author_id === caller?.id) ||
     (!publishedOnly && caller?.role === 'ADMIN'));
-  if (!allowed) throw problem(404, 'Không tìm thấy tác phẩm.');
+  if (!allowed && !(post?.withdrawn_at && !publishedOnly && await hasEntitlement(post.id,caller))) {
+    throw problem(404, 'Không tìm thấy tác phẩm.');
+  }
   return post;
 }
 
 async function hasFull(post, caller) {
   if (post.author_id === caller?.id) return true;
   if (!Number(post.price_vnd)) return true;
-  if (!caller) return false;
-  const [right] = await query('COMMERCE',
-    'SELECT 1 FROM public.entitlements WHERE buyer_id=$1 AND post_id=$2', [caller.id, post.id]);
-  return Boolean(right);
+  return hasEntitlement(post.id,caller);
 }
 
 async function postMedia(post, caller) {
@@ -49,7 +62,8 @@ async function postMedia(post, caller) {
     WHERE a.post_id=$1 AND a.status='READY' ORDER BY a.position`, [post.id]);
   const full = await hasFull(post, caller);
   return rows.map(({id, filename, original_key, purpose, mime_type, kind}) => ({
-    id, filename, purpose, mime_type, kind, locked: !full && purpose !== 'PROMO',
+    id, filename, purpose, mime_type, kind, premium: Number(post.price_vnd)>0 && purpose==='FULL',
+    locked: !full && purpose !== 'PROMO',
     url: localKey.test(original_key) && (full || purpose === 'PROMO') ? mediaUrl(id) : null
   }));
 }
@@ -58,7 +72,7 @@ const coverColumns = `(
   SELECT a.id FROM public.assets a JOIN public.asset_formats f ON f.id=a.format_id
   WHERE a.post_id=p.id AND a.status='READY' AND (p.price_vnd=0 OR a.purpose='PROMO')
     AND f.kind IN ('IMAGE','VIDEO') AND a.original_key LIKE 'local-demo/%'
-  ORDER BY (a.purpose='PROMO') DESC, (f.kind='IMAGE') DESC, a.position LIMIT 1
+  ORDER BY a.position LIMIT 1
 ) AS cover_id, ARRAY(
   SELECT DISTINCT f.kind FROM public.assets a JOIN public.asset_formats f ON f.id=a.format_id
   WHERE a.post_id=p.id AND a.status='READY'
@@ -134,17 +148,23 @@ async function publish(id, caller) {
   return withDb('CONTENT', async client => {
     await client.query('BEGIN');
     try {
-      const {rows:[post]} = await client.query('SELECT status FROM public.posts WHERE id=$1 AND author_id=$2 FOR UPDATE', [id,caller.id]);
+      const {rows:[post]} = await client.query('SELECT status,price_vnd FROM public.posts WHERE id=$1 AND author_id=$2 FOR UPDATE', [id,caller.id]);
       if (!post) throw problem(404, 'Không tìm thấy bài của bạn.');
       if (!['DRAFT','PUBLISHED'].includes(post.status)) throw problem(409, 'Bài này không thể phát hành.');
       if (post.status === 'DRAFT') {
         const {rows} = await client.query(
-          "SELECT original_key FROM public.assets WHERE post_id=$1 AND status='READY' AND purpose='FULL'", [id]);
-        const key = rows[0]?.original_key.match(localKey)?.[1];
-        if (!key) throw problem(409, 'Bài chưa có tệp sẵn sàng trên kho local.');
-        await readFile(new URL('./.pck-demo/uploads/' + key, import.meta.url)).catch(() => {
-          throw problem(409, 'Không tìm thấy tệp trên máy chạy server.');
-        });
+          "SELECT original_key,purpose FROM public.assets WHERE post_id=$1 AND status='READY'", [id]);
+        if (!rows.some(file=>file.purpose==='FULL') ||
+          (Number(post.price_vnd)>0 && !rows.some(file=>file.purpose==='PROMO'))) {
+          throw problem(409,'Bài cần tệp đầy đủ sẵn sàng. Bài premium còn cần ảnh quảng bá.');
+        }
+        for (const file of rows) {
+          const key=file.original_key.match(localKey)?.[1];
+          if (!key) throw problem(409,'Bài có tệp chưa sẵn sàng trên kho local.');
+          await access(new URL('./.pck-demo/uploads/'+key,import.meta.url)).catch(()=>{
+            throw problem(409,'Không tìm thấy tệp trên máy chạy server.');
+          });
+        }
         await client.query("UPDATE public.posts SET status='PUBLISHED',published_at=now() WHERE id=$1", [id]);
       }
       await client.query('COMMIT');
@@ -153,6 +173,37 @@ async function publish(id, caller) {
       await client.query('ROLLBACK').catch(() => {});
       throw error;
     }
+  });
+}
+
+async function testPurchase(id, caller, expectedPrice) {
+  const post = await postById(id,caller,true);
+  if (post.author_id===caller.id || Number(post.price_vnd)<=0) {
+    throw problem(409,'Chỉ mua thử bài premium của người khác.');
+  }
+  return withDb('COMMERCE',async client=>{
+    await client.query('BEGIN');
+    try {
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1),hashtext($2))',[caller.id,id]);
+      const {rows:[existing]}=await client.query(`
+        SELECT o.id,o.status FROM public.entitlements e JOIN public.orders o ON o.id=e.source_order_id
+        WHERE e.buyer_id=$1 AND e.post_id=$2`,[caller.id,id]);
+      if(existing){await client.query('COMMIT');return {...existing,reused:true};}
+      if (expectedPrice !== Number(post.price_vnd)) throw problem(409,'Giá đã thay đổi. Tải lại bài để xác nhận.');
+      const {rows:[order]}=await client.query(`
+        INSERT INTO public.orders (buyer_id,post_id,amount_vnd,provider,expires_at)
+        VALUES ($1,$2,$3,'PCK_TEST',now()+interval '15 minutes')
+        ON CONFLICT (buyer_id,post_id) WHERE status='PENDING' DO NOTHING RETURNING id`,[caller.id,id,post.price_vnd]);
+      if(!order)throw problem(409,'Đã có một đơn đang chờ cho bài này.');
+      await client.query(`
+        INSERT INTO public.payment_events (order_id,provider,event_key,payload)
+        VALUES ($1,'PCK_TEST',$2,'{"mode":"test","result":"success"}'::jsonb)`,[order.id,'pck-test:'+order.id]);
+      await client.query("UPDATE public.orders SET status='PAID',paid_at=now(),provider_transaction_id=$2 WHERE id=$1",
+        [order.id,'pck-test:'+order.id]);
+      await client.query('INSERT INTO public.entitlements (buyer_id,post_id,source_order_id) VALUES ($1,$2,$3)',[caller.id,id,order.id]);
+      await client.query('COMMIT');
+      return {id:order.id,status:'PAID',reused:false};
+    } catch(error){await client.query('ROLLBACK').catch(()=>{});throw error}
   });
 }
 
@@ -185,7 +236,8 @@ async function community(path, req, caller, id, readJson) {
 async function detail(id, caller) {
   const post = await postById(id,caller);
   const media = await postMedia(post,caller);
-  if (post.status !== 'PUBLISHED') return {post,media,canPublish:post.status==='DRAFT'&&post.author_id===caller?.id,comments:[],likes:0,liked:false,saved:false};
+  const canManage=post.author_id===caller?.id&&['DRAFT','PUBLISHED'].includes(post.status);
+  if (post.status !== 'PUBLISHED') return {post,media,canManage,canPublish:post.status==='DRAFT'&&canManage,comments:[],likes:0,liked:false,saved:false};
   const [comments, reaction] = await withDb('COMMUNITY',async client => {
     const comments = await client.query(`
       SELECT id,author_id,body,created_at FROM public.comments
@@ -199,7 +251,7 @@ async function detail(id, caller) {
   const ids = [...new Set([post.author_id,...comments.map(c=>c.author_id)])];
   const users = await query('IDENTITY','SELECT id,display_name FROM public.users WHERE id=ANY($1::uuid[])',[ids]);
   const names = new Map(users.map(user=>[user.id,user.display_name]));
-  return {post:{...post,author:names.get(post.author_id)},media,
+  return {post:{...post,author:names.get(post.author_id)},media,canManage,
     comments:comments.map(c=>({id:c.id,body:c.body,created_at:c.created_at,author:names.get(c.author_id)})),...reaction};
 }
 
@@ -254,7 +306,7 @@ async function library(kind, caller) {
 
 async function adminDashboard() {
   const [posts, paid, reports, genres, events, totals] = await Promise.all([
-    query('CONTENT','SELECT id,title,status FROM public.posts ORDER BY created_at DESC,id LIMIT 50'),
+    query('CONTENT','SELECT id,title,status,withdrawn_at FROM public.posts ORDER BY created_at DESC,id LIMIT 50'),
     query('COMMERCE',"SELECT count(*)::int AS count FROM public.orders WHERE status='PAID'"),
     query('COMMUNITY',"SELECT id,post_id,reason FROM public.reports WHERE status='OPEN' ORDER BY created_at DESC LIMIT 50"),
     query('CONTENT','SELECT id,name,enabled FROM public.genres ORDER BY name'),
@@ -295,9 +347,90 @@ async function saveEvent(id, input) {
   });
 }
 
+export async function setPostGenre(client, id, genreId) {
+  if (genreId) {
+    const {rows:[genre]}=await client.query('SELECT enabled FROM public.genres WHERE id=$1 FOR SHARE',[genreId]);
+    if (!genre) throw problem(400,'Không tìm thấy thể loại.');
+    const {rows:assigned}=await client.query('SELECT 1 FROM public.post_genres WHERE post_id=$1 AND genre_id=$2',[id,genreId]);
+    if (assigned.length) return;
+    if (!genre.enabled) throw problem(400,'Thể loại này đã tạm dừng.');
+  }
+  await client.query('DELETE FROM public.post_genres WHERE post_id=$1',[id]);
+  if (genreId) await client.query('INSERT INTO public.post_genres (post_id,genre_id) VALUES ($1,$2)',[id,genreId]);
+}
+
+async function managePost(id, caller, method, input) {
+  const result = await withDb('CONTENT',async client=>{
+    await client.query('BEGIN');
+    try {
+      const {rows:[post]}=await client.query(`SELECT ${postFields},p.xmin::text AS revision FROM public.posts p
+        WHERE p.id=$1 AND p.author_id=$2 ${method==='GET'?'FOR SHARE':'FOR UPDATE'}`,[id,caller.id]);
+      if (!post) throw problem(404,'Không tìm thấy bài của bạn.');
+      if (method==='DELETE') {
+        if (post.withdrawn_at) { await client.query('COMMIT'); return {status:'WITHDRAWN'}; }
+        if(input?.status && input.status!==post.status) throw problem(409,'Trạng thái bài đã đổi. Tải lại trước khi xóa hoặc gỡ.');
+        if (post.status==='DRAFT'){
+          const {rows}=await client.query('DELETE FROM public.assets WHERE post_id=$1 RETURNING original_key',[id]);
+          await client.query('DELETE FROM public.post_genres WHERE post_id=$1',[id]);
+          await client.query('DELETE FROM public.posts WHERE id=$1',[id]);
+          await client.query('COMMIT');
+          return {status:'DELETED',keys:rows.map(row=>row.original_key)};
+        }
+        if (post.status!=='PUBLISHED') throw problem(409,'Bài đang bị quản trị viên ẩn.');
+        await client.query("UPDATE public.posts SET status='HIDDEN',withdrawn_at=now() WHERE id=$1",[id]);
+        await client.query('COMMIT');
+        return {status:'WITHDRAWN'};
+      }
+      if (!['DRAFT','PUBLISHED'].includes(post.status)) throw problem(409,'Bài này không còn sửa được.');
+      if (method==='GET') {
+        const {rows:genres}=await client.query(`SELECT g.id,g.name FROM public.post_genres pg JOIN public.genres g ON g.id=pg.genre_id
+          WHERE pg.post_id=$1 ORDER BY g.name,g.id`,[id]);
+        const {rows:assets}=await client.query(`SELECT a.id,a.filename,a.original_key,a.size_bytes,a.position,a.purpose,f.kind
+          FROM public.assets a JOIN public.asset_formats f ON f.id=a.format_id
+          WHERE a.post_id=$1 AND a.status='READY' ORDER BY a.position`,[id]);
+        await client.query('COMMIT');
+        return {post,genres,media:assets.map(a=>({
+          id:a.id,filename:a.filename,size:Number(a.size_bytes),kind:a.kind,
+          premium:Number(post.price_vnd)>0&&a.purpose==='FULL',url:localKey.test(a.original_key)?mediaUrl(a.id):null
+        }))};
+      }
+      if (post.status!=='PUBLISHED') throw problem(409,'Dùng form chỉnh sửa bản nháp để lưu tệp.');
+      if (input?.revision!==post.revision) throw problem(409,'Bài đã thay đổi. Tải lại form trước khi lưu.');
+      const title=typeof input.title==='string'?input.title.trim():'';
+      const description=typeof input.description==='string'?input.description.trim():'';
+      const genreId=input.genreId||null;
+      const coverId=input.coverId||null;
+      if(!title||title.length>100||description.length>1000||
+         (genreId&&(typeof genreId!=='string'||!uuid.test(genreId)))||
+         (coverId&&(typeof coverId!=='string'||!uuid.test(coverId)))) throw problem(400,'Kiểm tra tiêu đề, mô tả, thể loại và ảnh đại diện.');
+      if(coverId){
+        const {rows:[cover]}=await client.query(`SELECT a.position,a.purpose,f.kind FROM public.assets a
+          JOIN public.asset_formats f ON f.id=a.format_id WHERE a.id=$1 AND a.post_id=$2 AND a.status='READY'`,[coverId,id]);
+        if(!cover||!['IMAGE','VIDEO'].includes(cover.kind)||
+          (Number(post.price_vnd)>0&&(cover.purpose!=='PROMO'||cover.kind!=='IMAGE'))) {
+          throw problem(400,'Chọn tệp công khai phù hợp làm đại diện.');
+        }
+        if(cover.position!==1){
+          await client.query('SET CONSTRAINTS ALL DEFERRED');
+          await client.query(`UPDATE public.assets SET position=CASE WHEN id=$1 THEN 1 ELSE $3 END
+            WHERE post_id=$2 AND (id=$1 OR position=1)`,[coverId,id,cover.position]);
+        }
+      }
+      await setPostGenre(client,id,genreId);
+      await client.query('UPDATE public.posts SET title=$2,description=$3,auto_cycle=$4 WHERE id=$1',
+        [id,title,description,input.autoCycle===true]);
+      await client.query('COMMIT');
+      return {status:'PUBLISHED'};
+    } catch(error){await client.query('ROLLBACK').catch(()=>{});throw error}
+  });
+  if(result.keys)await removeLocalAssets(result.keys);
+  const {keys,...response}=result;
+  return response;
+}
+
 export async function handleCatalog(req, res, path, send, caller, readJson) {
   const search = new URL(req.url,'http://localhost').searchParams;
-  const match = /^\/api\/demo\/(media|catalog|publish|admin-post|admin-genre|admin-report|admin-event)\/([^/]+)(?:\/(like|save|comments|report))?$/.exec(path);
+  const match = /^\/api\/demo\/(media|catalog|publish|manage-post|test-purchase|admin-post|admin-genre|admin-report|admin-event)\/([^/]+)(?:\/(like|save|comments|report))?$/.exec(path);
   const group = /^\/api\/demo\/(collections|events)(?:\/([^/]+))?$/.exec(path);
   const requireUser = () => { if (!caller) throw problem(401,'Hãy đăng nhập để tiếp tục.'); };
   const requireAdmin = () => { if (caller?.role!=='ADMIN') throw problem(403,'Chỉ tài khoản admin được thực hiện.'); };
@@ -340,6 +473,15 @@ export async function handleCatalog(req, res, path, send, caller, readJson) {
     if (action==='publish' && req.method==='PUT') {
       requireUser(); return send(res,200,await publish(id,caller));
     }
+    if (action==='manage-post' && ['GET','PUT','DELETE'].includes(req.method)) {
+      requireUser();
+      return send(res,200,await managePost(id,caller,req.method,req.method==='GET'?null:await readJson(req)));
+    }
+    if (action==='test-purchase' && req.method==='POST') {
+      requireUser();
+      const input=await readJson(req);
+      return send(res,200,await testPurchase(id,caller,input?.price));
+    }
     if (action==='admin-event' && req.method==='PUT') {
       requireAdmin(); return send(res,200,await saveEvent(id,await readJson(req)));
     }
@@ -352,7 +494,7 @@ export async function handleCatalog(req, res, path, send, caller, readJson) {
       }else if(action==='admin-post' && ['PUBLISHED','HIDDEN'].includes(input?.status)){
         // Restore only posts that have been published at least once.
         const rows = await query('CONTENT',`
-          UPDATE public.posts SET status=$2 WHERE id=$1 AND published_at IS NOT NULL
+          UPDATE public.posts SET status=$2 WHERE id=$1 AND published_at IS NOT NULL AND withdrawn_at IS NULL
           AND status IN ('PUBLISHED','HIDDEN') RETURNING id`,[id,input.status]);
         if(!rows.length) throw problem(409,'Chỉ quản trị trạng thái các bài từng được phát hành.');
       }else if(action==='admin-report' && input?.status==='DISMISSED'){
