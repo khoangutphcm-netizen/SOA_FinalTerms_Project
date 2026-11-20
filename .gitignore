@@ -5,3 +5,4 @@ node_modules/
 .npm-cache/
 /db_connection_string.txt
 /.pck-demo/
+AGENTS.md

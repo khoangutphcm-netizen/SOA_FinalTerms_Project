@@ -1,14 +1,15 @@
-import { createServer } from 'node:http';
-import { connect } from './demo-accounts.mjs';
+import { createServer } from "node:http";
+import { connect } from "./demo-accounts.mjs";
 
 const token = process.env.PCK_INTERNAL_TOKEN;
-if (!token) throw new Error('PCK_INTERNAL_TOKEN is required');
+if (!token) throw new Error("PCK_INTERNAL_TOKEN is required");
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const problem = (status, message) => Object.assign(new Error(message), {status});
+const problem = (status, message) =>
+  Object.assign(new Error(message), { status });
 
 async function withCommerceDb(work) {
-  const client = connect('COMMERCE');
-  client.on('error', () => {});
+  const client = connect("COMMERCE");
+  client.on("error", () => {});
   try {
     await client.connect();
     return await work(client);
@@ -18,7 +19,9 @@ async function withCommerceDb(work) {
 }
 
 async function rows(sql, params) {
-  return withCommerceDb(async client => (await client.query(sql, params)).rows);
+  return withCommerceDb(
+    async (client) => (await client.query(sql, params)).rows,
+  );
 }
 
 async function readBody(req) {
@@ -26,82 +29,155 @@ async function readBody(req) {
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > 4096) throw problem(413, 'Yêu cầu quá lớn.');
+    if (size > 4096) throw problem(413, "Yêu cầu quá lớn.");
     chunks.push(chunk);
   }
-  try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); }
-  catch { throw problem(400, 'JSON không hợp lệ.'); }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    throw problem(400, "JSON không hợp lệ.");
+  }
 }
 
 function send(res, status, data) {
-  res.writeHead(status, {'Content-Type':'application/json', 'Cache-Control':'no-store'});
+  res.writeHead(status, {
+    "Content-Type": "application/json",
+    "Cache-Control": "no-store",
+  });
   res.end(JSON.stringify(data));
 }
 
 async function recordTestPurchase(id, caller, expectedPrice, post) {
-  if (post.author_id===caller.id || Number(post.price_vnd)<=0) {
-    throw problem(409,'Chỉ mua thử bài premium của người khác.');
+  if (post.author_id === caller.id || Number(post.price_vnd) <= 0) {
+    throw problem(409, "Chỉ mua thử bài premium của người khác.");
   }
-  return withCommerceDb(async client=>{
-    await client.query('BEGIN');
+  return withCommerceDb(async (client) => {
+    await client.query("BEGIN");
     try {
-      await client.query('SELECT pg_advisory_xact_lock(hashtext($1),hashtext($2))',[caller.id,id]);
-      const {rows:[existing]}=await client.query(`
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtext($1),hashtext($2))",
+        [caller.id, id],
+      );
+      const {
+        rows: [existing],
+      } = await client.query(
+        `
         SELECT o.id,o.status FROM public.entitlements e JOIN public.orders o ON o.id=e.source_order_id
-        WHERE e.buyer_id=$1 AND e.post_id=$2`,[caller.id,id]);
-      if(existing){await client.query('COMMIT');return {...existing,reused:true};}
-      if (expectedPrice !== Number(post.price_vnd)) throw problem(409,'Giá đã thay đổi. Tải lại bài để xác nhận.');
-      const {rows:[order]}=await client.query(`
+        WHERE e.buyer_id=$1 AND e.post_id=$2`,
+        [caller.id, id],
+      );
+      if (existing) {
+        await client.query("COMMIT");
+        return { ...existing, reused: true };
+      }
+      if (expectedPrice !== Number(post.price_vnd))
+        throw problem(409, "Giá đã thay đổi. Tải lại bài để xác nhận.");
+      const {
+        rows: [order],
+      } = await client.query(
+        `
         INSERT INTO public.orders (buyer_id,post_id,amount_vnd,provider,expires_at)
         VALUES ($1,$2,$3,'PCK_TEST',now()+interval '15 minutes')
-        ON CONFLICT (buyer_id,post_id) WHERE status='PENDING' DO NOTHING RETURNING id`,[caller.id,id,post.price_vnd]);
-      if(!order)throw problem(409,'Đã có một đơn đang chờ cho bài này.');
-      await client.query(`
+        ON CONFLICT (buyer_id,post_id) WHERE status='PENDING' DO NOTHING RETURNING id`,
+        [caller.id, id, post.price_vnd],
+      );
+      if (!order) throw problem(409, "Đã có một đơn đang chờ cho bài này.");
+      await client.query(
+        `
         INSERT INTO public.payment_events (order_id,provider,event_key,payload)
-        VALUES ($1,'PCK_TEST',$2,'{"mode":"test","result":"success"}'::jsonb)`,[order.id,'pck-test:'+order.id]);
-      await client.query("UPDATE public.orders SET status='PAID',paid_at=now(),provider_transaction_id=$2 WHERE id=$1",
-        [order.id,'pck-test:'+order.id]);
-      await client.query('INSERT INTO public.entitlements (buyer_id,post_id,source_order_id) VALUES ($1,$2,$3)',[caller.id,id,order.id]);
-      await client.query('COMMIT');
-      return {id:order.id,status:'PAID',reused:false};
-    } catch(error){await client.query('ROLLBACK').catch(()=>{});throw error}
+        VALUES ($1,'PCK_TEST',$2,'{"mode":"test","result":"success"}'::jsonb)`,
+        [order.id, "pck-test:" + order.id],
+      );
+      await client.query(
+        "UPDATE public.orders SET status='PAID',paid_at=now(),provider_transaction_id=$2 WHERE id=$1",
+        [order.id, "pck-test:" + order.id],
+      );
+      await client.query(
+        "INSERT INTO public.entitlements (buyer_id,post_id,source_order_id) VALUES ($1,$2,$3)",
+        [caller.id, id, order.id],
+      );
+      await client.query("COMMIT");
+      return { id: order.id, status: "PAID", reused: false };
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    }
   });
 }
 
 const server = createServer(async (req, res) => {
-  if (req.headers.authorization !== 'Bearer ' + token) return send(res,403,{message:'Yêu cầu nội bộ.'});
+  if (req.headers.authorization !== "Bearer " + token)
+    return send(res, 403, { message: "Yêu cầu nội bộ." });
   try {
-    const {pathname, searchParams} = new URL(req.url,'http://localhost');
-    if (req.method === 'GET') {
-      if (pathname === '/health') {
-        await rows('SELECT 1');
-        return send(res,200,{status:'ok',message:'Commerce đã kết nối PostgreSQL.'});
+    const { pathname, searchParams } = new URL(req.url, "http://localhost");
+    if (req.method === "GET") {
+      if (pathname === "/health") {
+        await rows("SELECT 1");
+        return send(res, 200, {
+          status: "ok",
+          message: "Commerce đã kết nối PostgreSQL.",
+        });
       }
-      if (pathname === '/paid-count') {
-        const [result] = await rows("SELECT count(*)::int AS count FROM public.orders WHERE status='PAID'");
-        return send(res,200,result);
+      if (pathname === "/paid-count") {
+        const [result] = await rows(
+          "SELECT count(*)::int AS count FROM public.orders WHERE status='PAID'",
+        );
+        return send(res, 200, result);
       }
-      const buyerId = searchParams.get('buyerId');
-      const postId = searchParams.get('postId');
-      if (pathname === '/purchases' && uuid.test(buyerId)) {
-        return send(res,200,await rows('SELECT post_id FROM public.entitlements WHERE buyer_id=$1 ORDER BY granted_at DESC LIMIT 50',[buyerId]));
+      const buyerId = searchParams.get("buyerId");
+      const postId = searchParams.get("postId");
+      if (pathname === "/purchases" && uuid.test(buyerId)) {
+        return send(
+          res,
+          200,
+          await rows(
+            "SELECT post_id FROM public.entitlements WHERE buyer_id=$1 ORDER BY granted_at DESC LIMIT 50",
+            [buyerId],
+          ),
+        );
       }
-      if (pathname === '/entitlement' && uuid.test(buyerId) && uuid.test(postId)) {
-        const rights = await rows('SELECT 1 FROM public.entitlements WHERE buyer_id=$1 AND post_id=$2',[buyerId,postId]);
-        return send(res,200,{allowed:rights.length > 0});
+      if (
+        pathname === "/entitlement" &&
+        uuid.test(buyerId) &&
+        uuid.test(postId)
+      ) {
+        const rights = await rows(
+          "SELECT 1 FROM public.entitlements WHERE buyer_id=$1 AND post_id=$2",
+          [buyerId, postId],
+        );
+        return send(res, 200, { allowed: rights.length > 0 });
       }
     }
-    if (req.method === 'POST' && pathname === '/test-purchase') {
-      const {buyerId,postId,price,authorId} = (await readBody(req)) ?? {};
-      if (![buyerId,postId,authorId].every(id => typeof id === 'string' && uuid.test(id))
-          || !Number.isSafeInteger(price) || price <= 0) throw problem(400,'Đơn không hợp lệ.');
-      return send(res,200,await recordTestPurchase(postId,{id:buyerId},price,{author_id:authorId,price_vnd:price}));
+    if (req.method === "POST" && pathname === "/test-purchase") {
+      const { buyerId, postId, price, authorId } = (await readBody(req)) ?? {};
+      if (
+        ![buyerId, postId, authorId].every(
+          (id) => typeof id === "string" && uuid.test(id),
+        ) ||
+        !Number.isSafeInteger(price) ||
+        price <= 0
+      )
+        throw problem(400, "Đơn không hợp lệ.");
+      return send(
+        res,
+        200,
+        await recordTestPurchase(postId, { id: buyerId }, price, {
+          author_id: authorId,
+          price_vnd: price,
+        }),
+      );
     }
-    send(res,404,{message:'Không tìm thấy API Commerce.'});
+    send(res, 404, { message: "Không tìm thấy API Commerce." });
   } catch (error) {
-    send(res,error.status || 503,{message:error.status ? error.message : 'Không truy cập được Commerce DB.'});
+    send(res, error.status || 503, {
+      message: error.status
+        ? error.message
+        : "Không truy cập được Commerce DB.",
+    });
   }
 });
 
 const port = Number(process.env.COMMERCE_PORT || 3101);
-server.listen(port,'127.0.0.1',() => console.log('PCK Commerce: http://127.0.0.1:' + port));
+server.listen(port, "127.0.0.1", () =>
+  console.log("PCK Commerce: http://127.0.0.1:" + port),
+);

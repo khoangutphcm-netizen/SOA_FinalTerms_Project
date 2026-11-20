@@ -15,6 +15,16 @@ Web nhận yêu cầu tại cổng 3100 và chuyển API ứng dụng tới Cont
 
 Content gọi các service khác qua HTTP nội bộ. Người dùng đăng ký bằng email và phải xác minh OTP trước khi đăng nhập. Phiên lưu trong bộ nhớ và mua thử dùng `PCK_TEST`. Thanh toán QR sandbox và kho tệp dùng chung chưa được tích hợp. Tệp tải lên nằm trong `.pck-demo/uploads/` của máy chạy Content.
 
+## Việc cần làm theo ưu tiên
+
+- **P1: Nghiệp vụ và demo**: Tích hợp thanh toán sandbox; cấu hình DB và SMTP để kiểm thử OTP, đăng nhập, đăng bài và mua hàng từ giao diện. Hiện chưa có `.env` tại máy audit; test tự động dùng mock.
+- **P1: Dữ liệu và giao diện**: Danh sách Xem sau và Đã mua chỉ lấy 50 bài gần nhất. Cần phân trang và sửa trạng thái nút lưu trong trang khám phá khi có hơn 50 bài đã lưu.
+- **P1: Bảo vệ xác thực**: Giới hạn đăng nhập và đăng ký hiện dùng chung theo đường dẫn cho mọi người dùng. Cần giới hạn theo nguồn hoặc tài khoản để một người không chặn người khác.
+- **P2: Tiêu chí triển khai và giám sát**: Bổ sung Docker Compose, Prometheus và dashboard Grafana cho các service. Docker đang để làm sau theo kế hoạch hiện tại. Kiểm thử ngrok khi có môi trường chạy.
+- **P2: Độ ổn định**: Phiên đăng nhập mất khi khởi động lại; tệp upload lưu trên máy Content; một tiến trình dừng sẽ làm launcher dừng toàn bộ hệ thống. Cần cân nhắc lưu phiên và tệp bền vững, cùng cơ chế phục hồi service.
+- **P2: Kiểm thử giao diện**: Kiểm tra luồng thực tế, màn hình nhỏ, trạng thái tải và lỗi của từng chức năng. Chưa có kết quả kiểm thử trình duyệt với DB và SMTP thật.
+- **P3: Dọn giao diện cũ**: `public/concept/index.html` là giao diện chính, `public/index.html` kiểm tra DB; `public/demo.html` là trang demo cũ không được khai báo route. Xác nhận còn cần trước khi xóa.
+
 ## Cách chạy
 
 1. Cài Node.js 22 trở lên. Mở terminal trong thư mục repo và chạy `npm install`.

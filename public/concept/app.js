@@ -1,3 +1,9 @@
+import { createUploadTools, upload } from "./upload.js";
+import { discover } from "./discover.js";
+import { welcome, authForm, verifyForm } from "./auth.js";
+import { admin } from "./admin.js";
+import { handlePurchase } from "./purchase.js";
+
 const app = document.querySelector("#app");
 const loginLink = document.querySelector("#login-link");
 const adminLink = document.querySelector("#admin-link");
@@ -77,133 +83,15 @@ let galleryTimer,
   galleryIndex = 0,
   galleryPost = "";
 const cycleOverrides = new Map();
-const uploadFiles = [];
-let uploadCover = null;
-let uploadBusy = false;
+const uploadState = { files: [], cover: null, busy: false };
 
-function clearUploadFiles() {
-  for (const entry of uploadFiles)
-    if (!entry.id) URL.revokeObjectURL(entry.preview);
-  uploadFiles.length = 0;
-  uploadCover = null;
-}
-
-const fileSize = (bytes) =>
-  bytes < 1024 * 1024
-    ? Math.max(1, Math.round(bytes / 1024)) + " KiB"
-    : (bytes / (1024 * 1024)).toFixed(1) + " MiB";
-
-function uploadPriceSummary(form) {
-  const count = uploadFiles.filter((entry) => entry.premium).length;
-  const price = form.elements.price;
-  form.querySelector("#upload-price").hidden = !count;
-  price.disabled = !count;
-  price.required = Boolean(count);
-  form.querySelector("#upload-price-label").textContent =
-    "Giá mua một lần cho " + count + " tệp Premium";
-  form.querySelector("#upload-price-preview").textContent =
-    price.value && Number(price.value) > 0
-      ? Number(price.value).toLocaleString("vi-VN") + " ₫"
-      : "";
-}
-
-function renderUploadFiles(form) {
-  const container = form.querySelector("#upload-files");
-  const total = uploadFiles.reduce((sum, entry) => sum + entry.file.size, 0);
-  form.querySelector("#upload-count").textContent =
-    uploadFiles.length + "/8 tệp" + (total ? " · " + fileSize(total) : "");
-  form.querySelector("#upload-add").disabled = uploadFiles.length >= 8;
-  container.innerHTML = uploadFiles
-    .map((entry, index) => {
-      const cover = entry === uploadCover,
-        name = esc(entry.file.name);
-      const preview = !entry.preview
-        ? "<span>Tệp không có bản xem trước</span>"
-        : entry.video
-          ? `<video src="${esc(entry.preview)}" controls playsinline preload="metadata" aria-label="${name}"></video>`
-          : `<img src="${esc(entry.preview)}" alt="${name}">`;
-      return `<article class="upload-file">
-   <div class="upload-preview">${preview}<span class="upload-chip">${cover ? "Đại diện" : entry.premium ? "Premium" : "Công khai"}</span></div>
-   <div class="upload-file-meta"><strong title="${name}">${name}</strong><small>${entry.video ? "Video" : "Ảnh"} · ${fileSize(entry.file.size)}</small></div>
-   <div class="upload-file-actions">
-    <button type="button" class="btn light" data-upload-action="cover" data-index="${index}" aria-label="Chọn ${name} làm đại diện" aria-pressed="${cover}">${cover ? "✓ Đại diện" : "Đặt đại diện"}</button>
-    <button type="button" class="btn light" data-upload-action="remove" data-index="${index}" aria-label="Xóa ${name}">Xóa</button>
-   </div>
-   <label class="upload-switch"><input type="checkbox" role="switch" data-upload-premium="${index}" aria-label="Premium cho ${name}" ${entry.premium ? "checked" : ""} ${cover ? "disabled" : ""}>
-   Premium ${cover ? "<small>Ảnh bìa công khai</small>" : ""}</label>
-   ${
-     entry.video && entry.premium
-       ? `<label>Bắt đầu preview (giây)
-    <input type="number" min="0" max="86400" step="1" required name="previewStart:${index}" data-preview-start="${index}" value="${esc(entry.previewStart ?? 0)}">
-    <small>Tối đa 10 giây từ mốc này.</small></label>`
-       : ""
-   }
-  </article>`;
-    })
-    .join("");
-  uploadPriceSummary(form);
-}
-
-function addUploadFiles(form, selected) {
-  if (uploadBusy) return;
-  const issues = new Set();
-  let total = uploadFiles.reduce((sum, entry) => sum + entry.file.size, 0);
-  for (const file of selected) {
-    if (!/\.(jpe?g|png|mp4)$/i.test(file.name) || !file.size) {
-      issues.add("Chỉ nhận tệp JPG, PNG hoặc MP4 có dữ liệu.");
-      continue;
-    }
-    if (
-      uploadFiles.some(
-        ({ file: old }) =>
-          old.name === file.name &&
-          old.size === file.size &&
-          old.lastModified === file.lastModified,
-      )
-    ) {
-      issues.add("Tệp đã có trong danh sách được bỏ qua.");
-      continue;
-    }
-    if (uploadFiles.length >= 8) {
-      issues.add("Chỉ thêm được tối đa 8 tệp.");
-      break;
-    }
-    if (file.size > 10 * 1024 * 1024 || total + file.size > 40 * 1024 * 1024) {
-      issues.add("Tối đa 10 MiB mỗi tệp và 40 MiB tổng cộng.");
-      continue;
-    }
-    const entry = {
-      file,
-      preview: URL.createObjectURL(file),
-      video: /\.mp4$/i.test(file.name),
-      premium: false,
-    };
-    uploadFiles.push(entry);
-    total += file.size;
-    if (!uploadCover) uploadCover = entry;
-  }
-  form.querySelector("#upload-feedback").textContent = [...issues].join(" ");
-  form.querySelector("[role=status][data-submit-result]").textContent = "";
-  renderUploadFiles(form);
-}
-
-function buildUploadPayload(form) {
-  if (!uploadFiles.length) throw new Error("Thêm ít nhất một ảnh hoặc video.");
-  const marked = uploadFiles.flatMap((entry, index) =>
-    entry.premium ? [index] : [],
-  );
-  const data = new FormData(form);
-  data.set("cover", String(uploadFiles.indexOf(uploadCover)));
-  let upload = 0;
-  const entries = uploadFiles.map((entry) => {
-    if (entry.id) return { id: entry.id };
-    data.append("file", entry.file);
-    return { upload: upload++ };
-  });
-  if (form.dataset.postId) data.set("entries", JSON.stringify(entries));
-  for (const index of marked) data.append("premiumIndex", String(index));
-  return data;
-}
+const {
+  clearUploadFiles,
+  uploadPriceSummary,
+  renderUploadFiles,
+  addUploadFiles,
+  buildUploadPayload,
+} = createUploadTools(uploadState, esc);
 
 async function api(path, options = {}) {
   const response = await fetch("/api/demo/" + path, {
@@ -410,114 +298,7 @@ function filterBrowse(form, delay = 0) {
   updateBrowse(form, delay);
 }
 
-async function discover() {
-  const { include, exclude } = filters;
-  const [catalog, genreList, saved] = await Promise.allSettled([
-    browseSearch(),
-    api("genres"),
-    user ? api("saved") : null,
-  ]);
-  savedForBrowse = new Set((saved.value?.posts ?? []).map((post) => post.id));
-  const genres = genreList.value?.genres ?? [];
-  const option = (key, label, current) =>
-    `<option value="${key}" ${key === current ? "selected" : ""}>${label}</option>`;
-  const formats = [
-    ["", "Tất cả"],
-    ["IMAGE", "Ảnh"],
-    ["VIDEO", "Video"],
-    ["MIXED", "Hỗn hợp"],
-  ];
-  return (
-    '<div class="catalog-page catalog-discover">' +
-    heading("Khám phá") +
-    `<form id="browse-form" class="browse-controls">
-  <div class="catalog-search browse-search">
-   <input name="q" type="search" aria-label="Từ khóa" placeholder="Tìm tên, mô tả hoặc thể loại" maxlength="100" value="${esc(filters.q)}">
-   <button type="submit" class="btn dark">Tìm kiếm</button>
-  </div>
-  <input type="hidden" name="kind" value="${esc(filters.kind)}">
-  <div class="browse-formats" role="group" aria-label="Định dạng">${formats.map(([value, label]) => `<button type="button" data-format="${value}" aria-pressed="${filters.kind === value}">${label}</button>`).join("")}</div>
-  ${
-    genres.length
-      ? `<div class="browse-topics" role="group" aria-label="Chủ đề nhanh">${genres
-          .slice(0, 6)
-          .map(
-            (g) =>
-              `<button type="button" data-topic="${esc(g.id)}" aria-pressed="${include.includes(g.id)}">${esc(g.name)}</button>`,
-          )
-          .join("")}</div>`
-      : ""
-  }
-  <div class="browse-filter-row"><details class="browse-filter"><summary>Bộ lọc<span data-filter-count>${include.length + exclude.length + Number(Boolean(filters.pay)) + Number(Boolean(filters.days)) + Number(filters.sort !== "new") ? ` (${include.length + exclude.length + Number(Boolean(filters.pay)) + Number(Boolean(filters.days)) + Number(filters.sort !== "new")})` : ""}</span></summary>
-  <div class="browse-options">
-  <select name="sort" aria-label="Sắp xếp">${option("new", "Mới nhất", filters.sort)}${option("old", "Cũ nhất", filters.sort)}</select>
-  <select name="pay" aria-label="Mức giá">${option("", "Mọi mức giá", filters.pay)}${option("free", "Miễn phí", filters.pay)}${option("premium", "Trả phí", filters.pay)}</select>
-  <select name="days" aria-label="Thời gian đăng">${option("", "Mọi thời gian", filters.days)}${option("7", "7 ngày qua", filters.days)}${option("30", "30 ngày qua", filters.days)}${option("older", "Cũ hơn 30 ngày", filters.days)}</select>
-  ${
-    genres.length
-      ? `<details class="genre-box" ${include.length || exclude.length ? "open" : ""}><summary>Thể loại</summary>
-   ${genres
-     .map((g) => {
-       const selected = include.includes(g.id)
-         ? "yes"
-         : exclude.includes(g.id)
-           ? "no"
-           : "";
-       return `<label>${esc(g.name)}<select name="genre:${esc(g.id)}">${option("", "Bỏ qua", selected)}${option("yes", "Có", selected)}${option("no", "Không", selected)}</select></label>`;
-     })
-     .join("")}</details>`
-      : ""
-  }
-  </div></details><button type="button" class="browse-reset" data-browse-reset>Xóa bộ lọc</button>
-  <p class="muted browse-status" role="status">${catalog.status === "rejected" ? "Chưa tải được kết quả. Nhấn Tìm kiếm để thử lại." : catalog.value.posts.length ? `Hiển thị ${catalog.value.posts.length} tác phẩm.` : "Không có kết quả."}</p></div>
-  </form><div id="browse-results">${catalog.value ? browseResults(catalog.value.posts) : ""}</div></div>`
-  );
-}
-function welcome() {
-  return `<section class="welcome-screen"><div class="welcome-copy">
-  <h1><span>PCK.</span><br>Kho ảnh<br>và video.</h1>
-  <p>Khám phá góc nhìn mới, đăng tác phẩm của bạn và tìm nội dung phù hợp cho dự án tiếp theo.</p>
-  <div class="button-row">${link("Đăng nhập", "#login")}${link("Đăng ký", "#register", "dark")}</div>
- </div><div class="welcome-art" aria-hidden="true">
-  <div class="welcome-photo"></div>
- </div></section>
- <section class="welcome-guide" aria-labelledby="welcome-guide-title">
-  <header><h2 id="welcome-guide-title">Khám phá và chia sẻ tác phẩm</h2>
-   <p>Tìm ảnh, video và bộ sưu tập theo chủ đề, hoặc đăng tác phẩm của riêng bạn.</p>
-  </header>
-  <div class="welcome-topics">
-   <article><h3>Ảnh, video và bộ sưu tập</h3><p>Duyệt theo định dạng và thể loại. Bạn có thể xem các bài công khai khi chưa đăng nhập.</p><a href="#browse">Vào Khám phá <span aria-hidden="true">→</span></a></article>
-   <article><h3>Nội dung Premium</h3><p>Xem trước ảnh hoặc một đoạn video. Sau khi mua, bạn có thể tìm và tải bản đầy đủ trong mục Đã mua.</p></article>
-   <article><h3>Dành cho người sáng tạo</h3><p>Đăng nhiều ảnh và video trong một bài, chọn tệp đại diện và đặt giá cho phần Premium.</p><a href="#upload">Đăng tác phẩm <span aria-hidden="true">→</span></a></article>
-  </div>
- </section>`;
-}
-function authForm(register = false) {
-  if (user)
-    return heading(
-      "Bạn đã đăng nhập",
-      user.alias,
-      link("Tài khoản", "#account"),
-    );
-  const label = register ? "Tạo tài khoản" : "Đăng nhập";
-  return `<section class="auth-screen">${heading(label)}<form id="${register ? "register" : "login"}-form" class="surface edit-form">
- ${register ? '<label>Tên hiển thị<input name="displayName" required maxlength="80" autocomplete="nickname"></label>' : ""}
- ${register ? '<label>Email<input name="email" type="email" required maxlength="254" autocomplete="username"></label>' : '<label>Tên đăng nhập hoặc email<input name="identifier" type="text" required maxlength="254" autocapitalize="none" autocomplete="username" placeholder="Ví dụ: user1"></label>'}
- <label>Mật khẩu<input name="password" type="password" required ${register ? 'minlength="8"' : ""} maxlength="128" autocomplete="${register ? "new-password" : "current-password"}"></label>
- <div class="button-row"><button class="btn dark">${label}</button>${register ? link("Đã có tài khoản", "#login") : link("Tạo tài khoản", "#register")}</div>
- <a href="#verify">Xác minh email hoặc gửi lại mã</a>
- <p role="status" class="muted"></p>
- <a href="#home">Tiếp tục với vai trò khách</a>
- </form></section>`;
-}
 let verificationEmail = "";
-function verifyForm() {
-  return `<section class="auth-screen">${heading("Xác minh email")}<form id="verify-form" class="surface edit-form">
- <label>Email<input name="email" type="email" required maxlength="254" autocomplete="email" value="${esc(verificationEmail)}"></label>
- <label>Mã xác minh<input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autocomplete="one-time-code"></label>
- <div class="button-row"><button class="btn dark" name="operation" value="verify">Xác minh</button><button class="btn" name="operation" value="resend" type="submit" formnovalidate>Gửi lại mã</button></div>
- <p role="status" class="muted"></p><a href="#login">Đăng nhập</a></form></section>`;
-}
 const loginRequired = (message) =>
   heading("Bạn đang xem với vai trò Khách", message) +
   button("Đăng nhập", "login", location.hash.slice(1) || "account");
@@ -589,40 +370,6 @@ function publishedEditor({ post, media, genres: assigned }, genres) {
   <p class="muted">Tệp, trạng thái Premium và giá được giữ nguyên để người mua tiếp tục truy cập nội dung đã mua.</p>
   <button class="btn dark">Lưu thay đổi</button><p role="status" class="muted"></p></form>`
   );
-}
-async function upload(id) {
-  if (!user) return loginRequired("Đăng nhập để tải tệp lên.");
-  const { genres } = await api("genres");
-  const draft = id ? await api("manage-post/" + encodeURIComponent(id)) : null;
-  if (draft?.post.status === "PUBLISHED") return publishedEditor(draft, genres);
-  const post = draft?.post;
-  const html =
-    heading(
-      post ? "Sửa bản nháp" : "Đăng tác phẩm",
-      "Thêm ảnh hoặc video, chọn ảnh bìa và quyết định tệp nào cần trả phí.",
-      post ? link("Hủy", postLink(post)) : "",
-    ) +
-    `<form id="upload-form" class="surface edit-form upload-form" ${post ? `data-post-id="${esc(post.id)}"` : ""}>
- <fieldset class="upload-fields">
- <input name="revision" type="hidden" value="${esc(post?.revision)}">
- <label>Tiêu đề<input name="title" maxlength="100" required value="${esc(post?.title)}"></label><label>Mô tả<textarea name="description" maxlength="1000" rows="3">${esc(post?.description)}</textarea></label>
- <label>Thể loại<select name="genre">${genreOptions(genres, draft?.genres)}</select></label>
- <section id="upload-drop" class="upload-drop" aria-label="Kéo thả tệp">
-  <input id="upload-picker" type="file" multiple accept=".jpg,.jpeg,.png,.mp4" hidden>
-  <button type="button" id="upload-add" class="btn dark" data-upload-action="add">+ Thêm ảnh/video</button>
-  <span>Kéo và thả vào đây hoặc thêm tệp qua nhiều lượt</span>
-  <small>JPG, PNG, MP4 · 8 tệp · 10 MiB/tệp · 40 MiB/bài</small>
- </section>
- <div class="upload-list-head"><strong>Tệp trong bài</strong><span id="upload-count" aria-live="polite">0/8 tệp</span></div>
- <p id="upload-feedback" class="upload-feedback" aria-live="polite"></p>
- <div id="upload-files" class="upload-files"></div>
- <label class="check"><input name="autoCycle" type="checkbox" ${post?.auto_cycle ? "checked" : ""}> Tự chuyển ảnh mỗi 7 giây khi mở bài</label>
- <section id="upload-price" class="upload-price" hidden><label><span id="upload-price-label"></span>
- <input name="price" type="number" min="1" max="100000000" step="1" inputmode="numeric" placeholder="Ví dụ: 39000" value="${Number(post?.price_vnd) || ""}" disabled></label>
- <output id="upload-price-preview" aria-live="polite"></output><small>Một mức giá bằng VND để mở toàn bộ tệp được bật Premium. Các tệp khác vẫn xem miễn phí.</small></section>
- <button type="submit" class="btn dark">${post ? "Lưu bản nháp" : "Tải lên và lưu nháp"}</button><p data-submit-result role="status" class="muted"></p>
- </fieldset></form>`;
-  return { html, draft };
 }
 function gallery(media, i = 0) {
   if (!media.length) return empty("Chưa có tệp để hiển thị.");
@@ -743,78 +490,6 @@ function scheduleGallery() {
   }, 7000);
 }
 
-async function resolvePurchase(id, control) {
-  let state = "UNAVAILABLE";
-  for (const delay of [0, 1000, 2000]) {
-    if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
-    if (!control.isConnected) return state;
-    try {
-      const result = await api("purchase-status/" + encodeURIComponent(id), {
-        signal: AbortSignal.timeout(5000),
-      });
-      state = result.status;
-      if (state === "PAID") return state;
-    } catch {
-      state = "UNAVAILABLE";
-    }
-  }
-  return state;
-}
-
-async function handlePurchase(control) {
-  const { action, id, next } = control.dataset;
-  const checking = action === "check-purchase";
-  if (
-    !checking &&
-    !window.confirm("Xác nhận mua thử? Không có tiền thật được thu.")
-  )
-    return;
-  const status = control.nextElementSibling;
-  control.disabled = true;
-  status.textContent = checking
-    ? "Đang kiểm tra trạng thái đơn…"
-    : "Đang gửi yêu cầu mua thử…";
-  try {
-    let result;
-    if (!checking) {
-      try {
-        result = await json("test-purchase/" + encodeURIComponent(id), "POST", {
-          price: Number(next),
-        });
-      } catch (error) {
-        if (error.status >= 400 && error.status < 500 && error.status !== 408)
-          throw error;
-      }
-    }
-    if (result?.status !== "PAID") {
-      if (!control.isConnected) return;
-      status.textContent = "Đang xác nhận giao dịch với Commerce…";
-      const state = await resolvePurchase(id, control);
-      if (!control.isConnected) return;
-      if (state !== "PAID") {
-        const canRetry = state === "UNCONFIRMED";
-        status.textContent = canRetry
-          ? "Chưa thấy quyền mua được cấp. Bạn có thể thử lại với cùng tài khoản."
-          : "Chưa kiểm tra được kết quả. Hãy kiểm tra trạng thái trước khi gửi yêu cầu mua mới.";
-        control.dataset.action = canRetry ? "test-purchase" : "check-purchase";
-        control.textContent = canRetry ? "Mua thử lại" : "Kiểm tra trạng thái";
-        return;
-      }
-    }
-    if (!control.isConnected) return;
-    const selected = currentMedia[galleryIndex];
-    const firstPremium = currentMedia.find((file) => file.premium);
-    notice("Mua thử thành công. Đã mở quyền xem.");
-    await render({
-      selectedMediaId: (selected?.premium ? selected : firstPremium)?.id,
-    });
-  } catch (error) {
-    if (control.isConnected) status.textContent = error.message;
-  } finally {
-    control.disabled = false;
-  }
-}
-
 async function account(tab = "profile") {
   if (!user) return loginRequired("Đăng nhập để xem bài và nội dung của bạn.");
   const tabs = [
@@ -874,79 +549,6 @@ async function newCollection() {
 async function groupPage(kind, id) {
   const { group, posts } = await api(kind + "/" + encodeURIComponent(id));
   return heading(group.title, group.description) + grid(posts);
-}
-async function admin(tab = "overview") {
-  if (user?.role !== "ADMIN")
-    return heading(
-      "Khu vực quản trị",
-      "Đăng nhập với tài khoản admin.",
-      link("Tài khoản", "#account"),
-    );
-  const data = await api("admin");
-  const list = (rows, format, msg) =>
-    rows.length
-      ? `<ul class="real-list surface">${rows.map(format).join("")}</ul>`
-      : empty(msg);
-  const eventForm = (
-    event = { title: "", description: "", enabled: false, posts: [] },
-  ) => `<form class="surface edit-form" data-event-id="${esc(event.id || "")}">
-  <label>Tên sự kiện<input name="title" maxlength="80" required value="${esc(event.title)}"></label><label>Mô tả<textarea name="description" maxlength="240">${esc(event.description)}</textarea></label>
-  <label class="check"><input type="checkbox" name="enabled" ${event.enabled ? "checked" : ""}> Hiện trên Trang chủ</label>
-  <fieldset><legend>Bài đã phát hành</legend>${data.posts
-    .filter((p) => p.status === "PUBLISHED" || event.posts.includes(p.id))
-    .map(
-      (p) =>
-        `<label class="check"><input type="checkbox" name="posts" value="${esc(p.id)}" ${event.posts.includes(p.id) ? "checked" : ""}> ${esc(p.title)}${p.status === "HIDDEN" ? " · Đã ẩn" : ""}</label>`,
-    )
-    .join("")}</fieldset>
-  <button class="btn dark">${event.id ? "Lưu sự kiện" : "Tạo sự kiện"}</button><p role="status"></p></form>`;
-  const views = {
-    overview: () =>
-      `<div class="stats">${[
-        [data.totals.posts, "Tổng bài"],
-        [data.totals.published, "Đã phát hành"],
-        [data.totals.premium, "Premium công khai"],
-        [data.paid, "Đơn đã thanh toán"],
-      ]
-        .map(
-          ([count, label]) =>
-            `<div class="surface"><strong>${count}</strong><span>${label}</span></div>`,
-        )
-        .join("")}</div>`,
-    posts: () =>
-      list(
-        data.posts,
-        (p) =>
-          `<li><a href="${postLink(p)}">${esc(p.title)}</a><span>${esc(postStatus(p))}</span>${moderationButtons(p)}</li>`,
-        "Chưa có bài đăng.",
-      ),
-    genres: () =>
-      `<form class="surface edit-form" id="genre-form"><label>Tên thể loại<input name="name" required maxlength="60"></label><button class="btn dark">Thêm thể loại</button><p role="status"></p></form>` +
-      list(
-        data.genres,
-        (g) =>
-          `<li>${esc(g.name)}${button(g.enabled ? "Tạm dừng" : "Bật lại", "admin-genre", g.id, !g.enabled)}</li>`,
-        "Chưa có thể loại.",
-      ),
-    events: () =>
-      `<div class="event-editors">${eventForm()}${data.events.map(eventForm).join("")}</div>`,
-    reports: () =>
-      list(
-        data.reports,
-        (r) =>
-          `<li><a href="#post/${encodeURIComponent(r.post_id)}">${esc(r.reason)}</a>${button("Đóng báo cáo", "admin-report", r.id, "DISMISSED")}</li>`,
-        "Chưa có báo cáo đang chờ.",
-      ),
-  };
-  const tabs = [
-    ["overview", "Tổng quan"],
-    ["posts", "Bài đăng"],
-    ["genres", "Thể loại"],
-    ["events", "Sự kiện"],
-    ["reports", "Báo cáo"],
-  ];
-  return `<div class="admin-layout"><aside class="admin-sidebar"><a class="logo" href="#admin">PCK<span>.</span></a><nav>${tabs.map(([id, label]) => `<a href="#admin/${id}" ${id === tab ? 'aria-current="page"' : ""}>${label}</a>`).join("")}</nav>
- <a class="admin-exit" href="#home">← Về trang người dùng</a></aside><div class="admin-content">${heading(tabs.find(([id]) => id === tab)?.[1] || "Tổng quan")}${Object.hasOwn(views, tab) ? views[tab]() : views.overview()}</div></div>`;
 }
 function more() {
   return (
@@ -1008,17 +610,68 @@ async function render({ selectedMediaId } = {}) {
           include: [],
           exclude: [],
         };
-      return discover();
+      return discover({
+        filters,
+        browseSearch,
+        api,
+        user,
+        setSaved: (value) => {
+          savedForBrowse = value;
+        },
+        heading,
+        esc,
+        browseResults,
+      });
     },
-    welcome,
-    login: () => authForm(),
-    register: () => authForm(true),
-    verify: () => verifyForm(),
-    upload: () => upload(),
-    edit: () => upload(id),
+    welcome: () => welcome({ link }),
+    login: () => authForm({ user, heading, link }),
+    register: () => authForm({ user, heading, link }, true),
+    verify: () => verifyForm({ heading, esc, verificationEmail }),
+    upload: () =>
+      upload({
+        user,
+        loginRequired,
+        api,
+        publishedEditor,
+        heading,
+        link,
+        postLink,
+        esc,
+        genreOptions,
+      }),
+    edit: () =>
+      upload(
+        {
+          user,
+          loginRequired,
+          api,
+          publishedEditor,
+          heading,
+          link,
+          postLink,
+          esc,
+          genreOptions,
+        },
+        id,
+      ),
     more,
     account: () => account(id),
-    admin: () => admin(id),
+    admin: () =>
+      admin(
+        {
+          user,
+          heading,
+          link,
+          api,
+          empty,
+          esc,
+          postLink,
+          postStatus,
+          moderationButtons,
+          button,
+        },
+        id,
+      ),
     collections: async () =>
       heading(
         "Bộ sưu tập",
@@ -1039,7 +692,7 @@ async function render({ selectedMediaId } = {}) {
     const form = app.querySelector("#upload-form");
     if (form) {
       if (page.draft) {
-        uploadFiles.push(
+        uploadState.files.push(
           ...page.draft.media.map((file) => ({
             id: file.id,
             file: { name: file.filename, size: file.size },
@@ -1049,7 +702,7 @@ async function render({ selectedMediaId } = {}) {
             previewStart: file.previewStart,
           })),
         );
-        uploadCover = uploadFiles[0] || null;
+        uploadState.cover = uploadState.files[0] || null;
       }
       renderUploadFiles(form);
     }
@@ -1179,13 +832,13 @@ app.addEventListener("click", async (event) => {
   const uploadControl = event.target.closest("[data-upload-action]");
   if (uploadControl) {
     const form = uploadControl.closest("#upload-form");
-    if (!form || uploadBusy) return;
+    if (!form || uploadState.busy) return;
     const { uploadAction, index } = uploadControl.dataset;
     if (uploadAction === "add") {
       form.querySelector("#upload-picker").click();
       return;
     }
-    const entry = uploadFiles[Number(index)];
+    const entry = uploadState.files[Number(index)];
     if (!entry) return;
     const feedback = form.querySelector("#upload-feedback");
     feedback.textContent = "";
@@ -1194,18 +847,18 @@ app.addEventListener("click", async (event) => {
         feedback.textContent =
           "Tệp đã được chuyển sang công khai vì được chọn làm đại diện.";
       entry.premium = false;
-      uploadCover = entry;
+      uploadState.cover = entry;
     } else if (uploadAction === "remove") {
       if (!entry.id) URL.revokeObjectURL(entry.preview);
-      uploadFiles.splice(Number(index), 1);
-      if (entry === uploadCover) {
-        uploadCover =
-          uploadFiles.find((file) => !file.video && !file.premium) ||
-          uploadFiles.find((file) => !file.video) ||
-          uploadFiles[0] ||
+      uploadState.files.splice(Number(index), 1);
+      if (entry === uploadState.cover) {
+        uploadState.cover =
+          uploadState.files.find((file) => !file.video && !file.premium) ||
+          uploadState.files.find((file) => !file.video) ||
+          uploadState.files[0] ||
           null;
-        if (uploadCover?.premium) {
-          uploadCover.premium = false;
+        if (uploadState.cover?.premium) {
+          uploadState.cover.premium = false;
           feedback.textContent =
             "Tệp đại diện mới đã được chuyển sang công khai.";
         }
@@ -1256,7 +909,19 @@ app.addEventListener("click", async (event) => {
     return;
   }
   if (action === "test-purchase" || action === "check-purchase")
-    return handlePurchase(control);
+    return handlePurchase(
+      {
+        api,
+        json,
+        notice,
+        render,
+        getSelectedMedia: () => ({
+          selected: currentMedia[galleryIndex],
+          firstPremium: currentMedia.find((file) => file.premium),
+        }),
+      },
+      control,
+    );
   control.disabled = true;
   try {
     if (action === "logout") {
@@ -1337,8 +1002,8 @@ app.addEventListener("change", (event) => {
   }
   if (field.hasAttribute("data-upload-premium")) {
     const index = Number(field.dataset.uploadPremium);
-    const entry = uploadFiles[index];
-    if (!entry || entry === uploadCover || uploadBusy) return;
+    const entry = uploadState.files[index];
+    if (!entry || entry === uploadState.cover || uploadState.busy) return;
     entry.premium = field.checked;
     renderUploadFiles(form);
     form
@@ -1348,7 +1013,7 @@ app.addEventListener("change", (event) => {
 });
 app.addEventListener("input", (event) => {
   if (event.target.matches("[data-preview-start]")) {
-    const entry = uploadFiles[Number(event.target.dataset.previewStart)];
+    const entry = uploadState.files[Number(event.target.dataset.previewStart)];
     if (entry) entry.previewStart = event.target.value;
   }
   if (event.target.name === "q" && event.target.form?.id === "browse-form")
@@ -1360,8 +1025,8 @@ app.addEventListener("dragover", (event) => {
   const zone = event.target.closest("#upload-drop");
   if (!zone || !event.dataTransfer.types.includes("Files")) return;
   event.preventDefault();
-  event.dataTransfer.dropEffect = uploadBusy ? "none" : "copy";
-  if (!uploadBusy) zone.classList.add("drag-active");
+  event.dataTransfer.dropEffect = uploadState.busy ? "none" : "copy";
+  if (!uploadState.busy) zone.classList.add("drag-active");
 });
 app.addEventListener("dragleave", (event) => {
   const zone = event.target.closest("#upload-drop");
@@ -1398,12 +1063,17 @@ app.addEventListener("submit", async (event) => {
     return;
   }
   const status = form.querySelector("[role=status]");
-  const buttons = [...form.querySelectorAll('button[type=submit], button:not([type])')].filter((button) => !button.disabled);
-  buttons.forEach((button) => { button.disabled = true; });
+  const buttons = [
+    ...form.querySelectorAll("button[type=submit], button:not([type])"),
+  ].filter((button) => !button.disabled);
+  buttons.forEach((button) => {
+    button.disabled = true;
+  });
   status.textContent = "Đang xử lý…";
   try {
     if (form.id === "verify-form") {
-      const operation = event.submitter?.value === "resend" ? "resend" : "verify";
+      const operation =
+        event.submitter?.value === "resend" ? "resend" : "verify";
       const result = await json(operation, "POST", Object.fromEntries(data));
       status.textContent = result.message;
     } else if (form.id === "register-form") {
@@ -1417,9 +1087,9 @@ app.addEventListener("submit", async (event) => {
       afterLogin = "account";
       go(route);
     } else if (form.id === "upload-form") {
-      if (uploadBusy) return;
+      if (uploadState.busy) return;
       const payload = buildUploadPayload(form);
-      uploadBusy = true;
+      uploadState.busy = true;
       const fields = form.querySelector(".upload-fields");
       fields.disabled = true;
       let result;
@@ -1430,7 +1100,7 @@ app.addEventListener("submit", async (event) => {
           body: payload,
         });
       } finally {
-        uploadBusy = false;
+        uploadState.busy = false;
         fields.disabled = false;
       }
       clearUploadFiles();
@@ -1484,7 +1154,9 @@ app.addEventListener("submit", async (event) => {
   } catch (error) {
     status.textContent = error.message;
   } finally {
-    buttons.forEach((button) => { button.disabled = false; });
+    buttons.forEach((button) => {
+      button.disabled = false;
+    });
   }
 });
 const topbar = document.querySelector(".topbar");
