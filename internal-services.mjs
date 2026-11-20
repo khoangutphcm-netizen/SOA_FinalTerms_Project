@@ -10,13 +10,13 @@ export function servicePort(service) {
   return Number(process.env[service + '_PORT'] || {COMMERCE:3101,CONTENT:3102,IDENTITY:3103,COMMUNITY:3104}[service]);
 }
 
-export async function callService(service, operation, input = {}) {
+export async function callService(service, operation, input = {}, {timeoutMs=25000} = {}) {
   let response;
   let data;
   try {
     response = await fetch('http://127.0.0.1:' + servicePort(service) + '/' + operation, {
       method:'POST', headers:{Authorization:'Bearer ' + process.env.PCK_INTERNAL_TOKEN,'Content-Type':'application/json'},
-      body:JSON.stringify(input), signal:AbortSignal.timeout(25000)
+      body:JSON.stringify(input), signal:AbortSignal.timeout(timeoutMs)
     });
     data = await response.json();
   } catch {

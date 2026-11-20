@@ -1,11 +1,13 @@
 import { callService } from './internal-services.mjs';
 import { commerce } from './commerce-client.mjs';
-import { access, readFile, unlink } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { access, readFile, stat, unlink } from 'node:fs/promises';
 import { connect } from './demo-accounts.mjs';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const localKey = /^local-demo\/([0-9a-f-]{36}\.(?:jpg|jpeg|png|mp4))$/i;
 const mediaUrl = id => '/api/demo/media/' + id;
+const uploads = new URL('./.pck-demo/uploads/',import.meta.url);
 const postFields = 'p.id, p.author_id, p.title, p.description, p.price_vnd, p.auto_cycle, p.status, p.withdrawn_at, p.moderation_state, p.published_at, p.view_count, p.created_at';
 
 export async function withDb(name, work) {
@@ -58,16 +60,36 @@ async function hasFull(post, caller) {
   return hasEntitlement(post.id,caller);
 }
 
+async function localAssetAvailable(key) {
+  const name = key?.match(localKey)?.[1];
+  if (!name) return false;
+  const file = new URL(name,uploads);
+  try {
+    if (!(await stat(file)).isFile()) return false;
+    await access(file,constants.R_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function postMedia(post, caller) {
   const rows = await query('CONTENT', `SELECT a.id, a.filename, a.original_key, a.preview_key, a.purpose, f.mime_type, f.kind
     FROM public.assets a JOIN public.asset_formats f ON f.id=a.format_id
     WHERE a.post_id=$1 AND a.status='READY' ORDER BY a.position`, [post.id]);
   const full = await hasFull(post, caller);
-  return rows.map(({id, filename, original_key, preview_key, purpose, mime_type, kind}) => ({
-    id, filename, purpose, mime_type, kind, premium: Number(post.price_vnd)>0 && purpose==='FULL',
-    locked: !full && purpose !== 'PROMO',
-    previewUrl: !full && purpose==='FULL' && localKey.test(preview_key) ? '/api/demo/preview/'+id : null,
-    url: localKey.test(original_key) && (full || purpose === 'PROMO') ? mediaUrl(id) : null
+  return Promise.all(rows.map(async ({id, filename, original_key, preview_key, purpose, mime_type, kind}) => {
+    const locked = !full && purpose !== 'PROMO';
+    const [originalAvailable,previewAvailable] = await Promise.all([
+      localAssetAvailable(original_key),
+      locked && localAssetAvailable(preview_key)
+    ]);
+    return {
+      id, filename, purpose, mime_type, kind, premium: Number(post.price_vnd)>0 && purpose==='FULL',
+      locked, originalAvailable,
+      previewUrl: previewAvailable ? '/api/demo/preview/'+id : null,
+      url: originalAvailable && !locked ? mediaUrl(id) : null
+    };
   }));
 }
 
@@ -127,8 +149,10 @@ async function sendMedia(req, res, id, caller, preview = false) {
   if (!preview && asset.purpose !== 'PROMO' && !(await hasFull(post, caller))) throw problem(403, 'Bạn chưa có quyền xem tệp.');
   const mime = preview ? (key.endsWith('.mp4')?'video/mp4':'image/jpeg') : asset.mime_type;
   if (!['image/jpeg','image/png','video/mp4'].includes(mime)) throw problem(415, 'Tệp không được hỗ trợ.');
-  const bytes = await readFile(new URL('./.pck-demo/uploads/' + key, import.meta.url)).catch(error => {
-    if (error.code === 'ENOENT') throw problem(404, 'Tệp không có trên máy chạy server.');
+  const bytes = await readFile(new URL(key,uploads)).catch(error => {
+    if (['ENOENT','ENOTDIR','EISDIR','EACCES','EPERM'].includes(error.code)) {
+      throw problem(404, 'Tệp hiện không khả dụng.');
+    }
     throw error;
   });
   const headers = {'Content-Type':mime, 'Accept-Ranges':'bytes', 'Cache-Control':'private, no-store',
@@ -166,12 +190,8 @@ async function publish(id, caller) {
           (Number(post.price_vnd)>0 && !rows.some(file=>file.purpose==='PROMO'))) {
           throw problem(409,'Bài cần tệp đầy đủ sẵn sàng. Bài Premium còn cần một tệp đại diện công khai.');
         }
-        for (const file of rows) {
-          const key=file.original_key.match(localKey)?.[1];
-          if (!key) throw problem(409,'Bài có tệp chưa sẵn sàng trên kho local.');
-          await access(new URL('./.pck-demo/uploads/'+key,import.meta.url)).catch(()=>{
-            throw problem(409,'Không tìm thấy tệp trên máy chạy server.');
-          });
+        if (!(await Promise.all(rows.map(file=>localAssetAvailable(file.original_key)))).every(Boolean)) {
+          throw problem(409,'Một hoặc nhiều tệp gốc hiện không khả dụng.');
         }
         await client.query("UPDATE public.posts SET status='PUBLISHED',published_at=now() WHERE id=$1", [id]);
       }
@@ -193,7 +213,17 @@ async function testPurchase(id, caller, expectedPrice) {
       if (!post) throw problem(409, 'Tác phẩm hiện không mở bán.');
       if (post.author_id === caller.id || Number(post.price_vnd) <= 0) throw problem(409,'Chỉ mua thử bài premium của người khác.');
       if (expectedPrice !== Number(post.price_vnd)) throw problem(409,'Giá đã thay đổi. Tải lại bài để xác nhận.');
-      return await commerce('/test-purchase', {buyerId:caller.id, postId:id, price:expectedPrice, authorId:post.author_id});
+      const {rows:files} = await content.query(
+        "SELECT original_key FROM public.assets WHERE post_id=$1 AND purpose='FULL' AND status='READY'",[id]);
+      if (!files.length || !(await Promise.all(files.map(file=>localAssetAvailable(file.original_key)))).every(Boolean)) {
+        throw problem(409,'Tạm dừng mua vì một hoặc nhiều tệp Premium hiện không khả dụng.');
+      }
+      try {
+        return await commerce('/test-purchase', {buyerId:caller.id, postId:id, price:expectedPrice, authorId:post.author_id});
+      } catch (error) {
+        if (error.status===503) return {status:'VERIFYING'};
+        throw error;
+      }
     } finally {
       await content.query('ROLLBACK').catch(() => {});
     }
@@ -219,15 +249,24 @@ async function community(path, req, caller, id, readJson) {
 
 async function detail(id, caller) {
   const post = await postById(id,caller);
-  const media = await postMedia(post,caller);
   const canManage=post.author_id===caller?.id&&['DRAFT','PUBLISHED'].includes(post.status);
-  if (post.status !== 'PUBLISHED') return {post,media,canManage,canPublish:post.status==='DRAFT'&&canManage,comments:[],likes:0,liked:false,saved:false};
-  const {comments,reaction} = await callService('COMMUNITY','detail',{id,userId:caller?.id || null});
+  if (post.status !== 'PUBLISHED') {
+    return {post,media:await postMedia(post,caller),canManage,canPublish:post.status==='DRAFT'&&canManage,
+      comments:[],likes:0,liked:false,saved:false};
+  }
+  const optionalService = {timeoutMs:3500};
+  const [media,communityData] = await Promise.all([
+    postMedia(post,caller),
+    callService('COMMUNITY','detail',{id,userId:caller?.id || null},optionalService).catch(()=>null)
+  ]);
+  const comments=communityData?.comments ?? [];
   const ids = [...new Set([post.author_id,...comments.map(c=>c.author_id)])];
-  const users = await callService('IDENTITY','names',{ids});
-  const names = new Map(users.map(user=>[user.id,user.display_name]));
+  const users = await callService('IDENTITY','names',{ids},optionalService).catch(()=>null);
+  const names = new Map((users??[]).map(user=>[user.id,user.display_name]));
   return {post:{...post,author:names.get(post.author_id)},media,canManage,
-    comments:comments.map(c=>({id:c.id,body:c.body,created_at:c.created_at,author:names.get(c.author_id)})),...reaction};
+    communityAvailable:Boolean(communityData),identityAvailable:Boolean(users),
+    comments:comments.map(c=>({id:c.id,body:c.body,created_at:c.created_at,author:names.get(c.author_id)})),
+    ...communityData?.reaction};
 }
 
 const groupKinds = {
@@ -447,7 +486,7 @@ async function managePost(id, caller, method, input) {
 
 export async function handleCatalog(req, res, path, send, caller, readJson) {
   const search = new URL(req.url,'http://localhost').searchParams;
-  const match = /^\/api\/demo\/(media|preview|catalog|publish|manage-post|test-purchase|admin-post|admin-genre|admin-report|admin-event)\/([^/]+)(?:\/(like|save|comments|report))?$/.exec(path);
+  const match = /^\/api\/demo\/(media|preview|catalog|publish|manage-post|test-purchase|purchase-status|admin-post|admin-genre|admin-report|admin-event)\/([^/]+)(?:\/(like|save|comments|report))?$/.exec(path);
   const group = /^\/api\/demo\/(collections|events)(?:\/([^/]+))?$/.exec(path);
   const requireUser = () => { if (!caller) throw problem(401,'Hãy đăng nhập để tiếp tục.'); };
   const requireAdmin = () => { if (caller?.role!=='ADMIN') throw problem(403,'Chỉ tài khoản admin được thực hiện.'); };
@@ -497,7 +536,12 @@ export async function handleCatalog(req, res, path, send, caller, readJson) {
     if (action==='test-purchase' && req.method==='POST') {
       requireUser();
       const input=await readJson(req);
-      return send(res,200,await testPurchase(id,caller,input?.price));
+      const result=await testPurchase(id,caller,input?.price);
+      return send(res,result.status==='VERIFYING'?202:200,result);
+    }
+    if (action==='purchase-status' && req.method==='GET') {
+      requireUser();
+      return send(res,200,{status:await hasEntitlement(id,caller)?'PAID':'UNCONFIRMED'});
     }
     if (action==='admin-event' && req.method==='PUT') {
       requireAdmin(); return send(res,200,await saveEvent(id,await readJson(req)));

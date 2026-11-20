@@ -143,7 +143,7 @@ function buildUploadPayload(form) {
 async function api(path, options={}) {
  const response = await fetch('/api/demo/'+path,{...options,headers:{'X-PCK-Demo':'1',...options.headers}});
  const result = await response.json();
- if (!response.ok) throw new Error(result.message || 'Yêu cầu thất bại.');
+ if (!response.ok) throw Object.assign(new Error(result.message || 'Yêu cầu thất bại.'),{status:response.status});
  return result;
 }
 const json = (path, method, body) => api(path,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
@@ -381,12 +381,18 @@ async function upload(id) {
 function gallery(media,i=0) {
  if(!media.length)return empty('Chưa có tệp để hiển thị.');
  const m=media[i];
- let view='<span>Không có tệp trong kho local</span>';
+ let view='<span>Tệp hiện không khả dụng</span>';
  const source=m.url||m.previewUrl;
  if(source&&m.kind==='VIDEO')view=`<video src="${esc(source)}" controls ${m.locked?'controlslist="nodownload"':''} playsinline preload="metadata"></video>`;
- else if(source&&m.kind==='IMAGE')view=`<img src="${esc(source)}" alt="${esc(m.filename)}">`;
- else if(m.locked)view='<strong>Nội dung trả phí</strong>';
- return `<div class="preview media-stage">${view}</div><div class="detail-file"><div><strong>${esc(m.filename)}</strong><span>${m.locked?(m.previewUrl?'Bản xem trước Premium':'Tệp Premium chưa mở'):m.premium?'Tệp Premium':'Tệp công khai'}</span></div>${m.url?`<a class="btn dark" href="${esc(m.url)}" download="${esc(m.filename)}">Tải bản gốc</a>`:''}</div>
+ else if(source&&m.kind==='IMAGE'){
+  const image=`<img src="${esc(source)}" alt="${esc(m.filename)}">`;
+  view=m.locked?`<div class="premium-preview-photo">${image}<div class="premium-preview-corner"><img src="${esc(source)}" alt="" aria-hidden="true"><span>PCGK Preview</span></div></div>`:image;
+ }
+ else if(m.locked&&m.originalAvailable)view='<strong>Chưa có bản xem trước cho tệp Premium</strong>';
+ const state=!m.originalAvailable?'Tệp gốc hiện không khả dụng'
+  :m.locked?(m.previewUrl?'Bản xem trước Premium':'Tệp Premium chưa mở')
+  :m.premium?'Tệp Premium':'Tệp công khai';
+ return `<div class="preview media-stage">${view}</div><div class="detail-file"><div><strong>${esc(m.filename)}</strong><span>${state}</span></div>${m.url?`<a class="btn dark" href="${esc(m.url)}" download="${esc(m.filename)}">Tải bản gốc</a>`:''}</div>
  <div class="media-thumbs" role="group" aria-label="Tệp trong tác phẩm">${media.map((f,k)=>`<button type="button" class="btn light" data-media="${k}" aria-pressed="${i===k}">${kindNames[f.kind]||'Tệp'} ${k+1}${f.premium?' · Premium':''}</button>`).join('')}
  ${media.filter(f=>f.kind==='IMAGE'&&f.url).length>1?`<button type="button" class="btn light" data-action="cycle" aria-pressed="${Boolean(cycleOverrides.get(galleryPost))}">${cycleOverrides.get(galleryPost)?'Dừng tự chuyển':'Tự chuyển ảnh'}</button>`:''}</div>
   `;
@@ -397,18 +403,25 @@ async function detail(id) {
  const published=post.status==='PUBLISHED';
  const premiumCount=media.filter(file=>file.premium).length;
  const locked=media.some(file=>file.locked);
+ const purchaseAvailable=media.filter(file=>file.premium).every(file=>file.originalAvailable);
+ const socialAvailable=published&&data.communityAvailable;
+ const author=post.author||(published&&data.identityAvailable===false?'Thông tin tác giả tạm thời không khả dụng.':'');
  const form=(name,label)=>`<form id="${name}" data-id="${esc(id)}"><input name="text" required maxlength="1000" aria-label="${label}" placeholder="${label}"><button class="btn light">Gửi</button><p role="status"></p></form>`;
- return {media,post, html:heading(post.title,post.author||'')+`<div class="detail"><section id="post-media"></section>
+ return {media,post, html:heading(post.title,author)+`<div class="detail"><section id="post-media"></section>
  <aside class="surface detail-summary"><p class="category">${esc(published?(premiumCount?'Premium':'Miễn phí'):postStatus(post))}</p>
  <h2>${esc(published?price(post):post.title)}</h2>
  <p>${media.length} tệp trong tác phẩm${premiumCount?` · ${premiumCount} tệp Premium`:''}</p>
- ${published&&locked?`<p>Một lần mua mở ${premiumCount} tệp Premium. Mua thử không thu tiền.</p><div class="detail-purchase">${button('Mua thử','test-purchase',id,post.price_vnd)}</div>`:''}
- ${premiumCount&&!locked?'<p>Chọn một tệp để tải bản gốc.</p>':''}
+ ${published&&locked?(purchaseAvailable
+  ? `<p>Một lần mua mở ${premiumCount} tệp Premium. Mua thử không thu tiền.</p><div class="detail-purchase">${button('Mua thử','test-purchase',id,post.price_vnd)}<p class="purchase-status" role="status"></p></div>`
+  : '<p>Tạm dừng mua vì có tệp Premium không khả dụng.</p>'):''}
+ ${premiumCount&&!locked&&media.some(file=>file.url)?'<p>Chọn một tệp còn khả dụng để tải bản gốc.</p>':''}
  ${post.description?`<p class="detail-description">${esc(post.description)}</p>`:''}
  ${data.canManage?`<div class="button-row post-actions">${data.canPublish?button('Phát hành','publish',id):''}${postActions(post)}</div>`:''}
- ${published?`<div class="button-row">${button((data.liked?'Bỏ thích':'Thích')+' · '+data.likes,data.liked?'unlike':'like',id)}${button(data.saved?'Bỏ lưu':'Xem sau',data.saved?'unsave':'save',id)}</div>`:''}</aside></div>
- ${published?`<section class="surface comments"><h2>Bình luận</h2>${data.comments.length?data.comments.map(c=>`<p><strong>${esc(c.author||'Tài khoản không khả dụng')}</strong> · ${esc(c.body)}</p>`).join(''):'<p>Chưa có bình luận.</p>'}
- ${user?form('comments-form','Viết bình luận')+`<details><summary>Báo cáo bài</summary>${form('report-form','Lý do báo cáo')}</details>`:button('Đăng nhập để bình luận','login','post/'+id)}</section>`:''}`};
+ ${socialAvailable?`<div class="button-row">${button((data.liked?'Bỏ thích':'Thích')+' · '+data.likes,data.liked?'unlike':'like',id)}${button(data.saved?'Bỏ lưu':'Xem sau',data.saved?'unsave':'save',id)}</div>`:''}</aside></div>
+ ${published?`<section class="surface comments"><h2>Bình luận</h2>${socialAvailable
+  ? (data.comments.length?data.comments.map(c=>`<p><strong>${esc(c.author||'Người dùng PCK')}</strong> · ${esc(c.body)}</p>`).join(''):'<p>Chưa có bình luận.</p>')+
+    (user?form('comments-form','Viết bình luận')+`<details><summary>Báo cáo bài</summary>${form('report-form','Lý do báo cáo')}</details>`:button('Đăng nhập để bình luận','login','post/'+id))
+  : '<p>Bình luận và tương tác tạm thời không khả dụng. Bạn vẫn có thể xem tác phẩm.</p>'}</section>`:''}`};
 }
 function updateGallery(direction) {
  const panel=document.querySelector('#post-media');
@@ -430,6 +443,66 @@ function scheduleGallery() {
   updateGallery('forward');
  },7000);
 }
+
+async function resolvePurchase(id, control) {
+ let state='UNAVAILABLE';
+ for(const delay of [0,1000,2000]){
+  if(delay)await new Promise(resolve=>setTimeout(resolve,delay));
+  if(!control.isConnected)return state;
+  try {
+   const result=await api('purchase-status/'+encodeURIComponent(id),{signal:AbortSignal.timeout(5000)});
+   state=result.status;
+   if(state==='PAID')return state;
+  } catch {
+   state='UNAVAILABLE';
+  }
+ }
+ return state;
+}
+
+async function handlePurchase(control) {
+ const {action,id,next}=control.dataset;
+ const checking=action==='check-purchase';
+ if(!checking&&!window.confirm('Xác nhận mua thử? Không có tiền thật được thu.'))return;
+ const status=control.nextElementSibling;
+ control.disabled=true;
+ status.textContent=checking?'Đang kiểm tra trạng thái đơn…':'Đang gửi yêu cầu mua thử…';
+ try {
+  let result;
+  if(!checking){
+   try {
+    result=await json('test-purchase/'+encodeURIComponent(id),'POST',{price:Number(next)});
+   } catch(error) {
+    if(error.status>=400&&error.status<500&&error.status!==408)throw error;
+   }
+  }
+  if(result?.status!=='PAID'){
+   if(!control.isConnected)return;
+   status.textContent='Đang xác nhận giao dịch với Commerce…';
+   const state=await resolvePurchase(id,control);
+   if(!control.isConnected)return;
+   if(state!=='PAID'){
+    const canRetry=state==='UNCONFIRMED';
+    status.textContent=canRetry
+     ?'Chưa thấy quyền mua được cấp. Bạn có thể thử lại với cùng tài khoản.'
+     :'Chưa kiểm tra được kết quả. Hãy kiểm tra trạng thái trước khi gửi yêu cầu mua mới.';
+    control.dataset.action=canRetry?'test-purchase':'check-purchase';
+    control.textContent=canRetry?'Mua thử lại':'Kiểm tra trạng thái';
+    return;
+   }
+  }
+  if(!control.isConnected)return;
+  const selected=currentMedia[galleryIndex];
+  const firstPremium=currentMedia.find(file=>file.premium);
+  notice('Mua thử thành công. Đã mở quyền xem.');
+  await render({selectedMediaId:(selected?.premium?selected:firstPremium)?.id});
+ } catch(error) {
+  if(control.isConnected)status.textContent=error.message;
+ } finally {
+  control.disabled=false;
+ }
+}
+
 async function account(tab='profile') {
  if(!user)return loginRequired('Đăng nhập để xem bài và nội dung của bạn.');
  const tabs=[['profile','Hồ sơ'],['posts','Bài của tôi'],['saved','Xem sau'],['purchases','Đã mua']];
@@ -484,7 +557,7 @@ async function admin(tab='overview') {
 function more() {
  return heading('Khác')+`<div class="shortcut-grid">${[['Bộ sưu tập','collections'],['Xem sau','account/saved'],['Đã mua','account/purchases']].map(([label,route])=>`<a class="surface shortcut" href="#${route}"><strong>${label} ↗</strong></a>`).join('')}</div>`;
 }
-async function render() {
+async function render({selectedMediaId}={}) {
  clearInterval(heroTimer);
  clearInterval(galleryTimer);
  const request=++version;
@@ -523,7 +596,7 @@ async function render() {
   }
   if(page.post){
    galleryPost=page.post.id;
-   galleryIndex=0;
+   galleryIndex=Math.max(0,currentMedia.findIndex(file=>file.id===selectedMediaId));
    if(!cycleOverrides.has(galleryPost))cycleOverrides.set(galleryPost,page.post.auto_cycle);
    updateGallery();
    scheduleGallery();
@@ -668,6 +741,7 @@ app.addEventListener('click',async event=>{
   return;
  }
  if(action==='login'||!user){afterLogin=id&&action==='login'?id:location.hash.slice(1)||'account';go('login');return}
+ if(action==='test-purchase'||action==='check-purchase')return handlePurchase(control);
  control.disabled=true;
  try {
   if(action==='logout'){await api('logout',{method:'POST'});user=null;go('home');return}
@@ -680,11 +754,6 @@ app.addEventListener('click',async event=>{
    notice(result.status==='DELETED'?'Đã xóa bản nháp.':'Đã gỡ bài khỏi Khám phá.');
    go('account/posts');
    return;
-  }
-  if(action==='test-purchase'){
-   if(!window.confirm('Xác nhận mua thử? Không có tiền thật được thu.')){control.disabled=false;return}
-   await json('test-purchase/'+id,'POST',{price:Number(next)});
-   notice('Mua thử thành công. Đã mở quyền xem.');
   }
   if(['like','unlike','save','unsave'].includes(action)){
    const remove=action.startsWith('un');
