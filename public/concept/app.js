@@ -10,7 +10,6 @@ const postLink = p => '#post/' + encodeURIComponent(p.id);
 const kindNames = {IMAGE:'Ảnh', VIDEO:'Video', AUDIO:'Âm thanh'};
 let user = null, version = 0, afterLogin = 'account', currentMedia = [], noticeTimer;
 let heroTimer;
-
 async function cycleHero(hero) {
  try {
   const response = await fetch('/assets/hero/images');
@@ -95,6 +94,9 @@ function renderUploadFiles(form) {
    </div>
    <label class="upload-switch"><input type="checkbox" role="switch" data-upload-premium="${index}" aria-label="Premium cho ${name}" ${entry.premium?'checked':''} ${cover?'disabled':''}>
    Premium ${cover?'<small>Ảnh bìa công khai</small>':''}</label>
+   ${entry.video&&entry.premium?`<label>Bắt đầu preview (giây)
+    <input type="number" min="0" max="86400" step="1" required name="previewStart:${index}" data-preview-start="${index}" value="${esc(entry.previewStart??0)}">
+    <small>Tối đa 10 giây từ mốc này.</small></label>`:''}
   </article>`;
  }).join('');
  uploadPriceSummary(form);
@@ -117,8 +119,6 @@ function addUploadFiles(form, selected) {
   total+=file.size;
   if(!uploadCover)uploadCover=entry;
  }
- const image=uploadFiles.find(entry=>!entry.video);
- if(uploadCover?.video&&image)uploadCover=image;
  form.querySelector('#upload-feedback').textContent=[...issues].join(' ');
  form.querySelector('[role=status][data-submit-result]').textContent='';
  renderUploadFiles(form);
@@ -127,7 +127,6 @@ function addUploadFiles(form, selected) {
 function buildUploadPayload(form) {
  if(!uploadFiles.length)throw new Error('Thêm ít nhất một ảnh hoặc video.');
  const marked=uploadFiles.flatMap((entry,index)=>entry.premium?[index]:[]);
- if(marked.length&&uploadCover.video)throw new Error('Bài Premium cần ảnh JPG hoặc PNG công khai làm đại diện.');
  const data=new FormData(form);
  data.set('cover',String(uploadFiles.indexOf(uploadCover)));
  let upload=0;
@@ -161,25 +160,50 @@ function notice(text) {
 function button(label, action, id='', next='') {
  return `<button class="btn light" data-action="${action}" data-id="${esc(id)}" data-next="${esc(next)}">${esc(label)}</button>`;
 }
-function card(p) {
- const kinds=(p.kinds||[]).map(k=>kindNames[k]||'Tệp');
- const cover = p.status==='PUBLISHED' && p.cover_id && p.cover_kind==='IMAGE';
- return `<article class="card"><a href="${postLink(p)}">
-  <div class="visual real-cover">${cover?`<img src="/api/demo/media/${encodeURIComponent(p.cover_id)}" alt="" loading="lazy">`:`<span>${kinds.includes('Video')?'▶ Video':'Chưa có ảnh bìa'}</span>`}</div>
-  <div class="card-body"><span class="category">${esc([...kinds,...(p.genres||[])].join(' · '))}</span><h3>${esc(p.title)}</h3>
-  <p>${esc(p.moderation_state==='TAKEN_DOWN'?'Đã gỡ do kiểm duyệt':p.withdrawn_at?'Đã gỡ khỏi Khám phá':p.moderation_state==='TEMP_HIDDEN'?'Tạm ẩn · Người mua vẫn xem được':p.status==='HIDDEN'?'Không khả dụng':price(p))}</p></div></a></article>`;
+function card(p, quickSave=false) {
+ const types=p.kinds||[];
+ const kinds=types.includes('IMAGE')&&types.includes('VIDEO')?['Hỗn hợp']:types.map(k=>kindNames[k]||'Tệp');
+ const cover = p.status==='PUBLISHED' && p.cover_id ? '/api/demo/media/'+encodeURIComponent(p.cover_id) : '';
+ const video=cover&&p.cover_kind==='VIDEO';
+ return `<article class="card ${video?'video-card':''}"><a href="${postLink(p)}">
+  <div class="visual real-cover">${video?`<video src="${cover}" muted playsinline loop preload="metadata" aria-hidden="true"></video>`
+   :cover&&p.cover_kind==='IMAGE'?`<img src="${cover}" alt="" loading="lazy">`:'<span>Chưa có ảnh bìa</span>'}</div>
+  <div class="card-body"><div class="catalog-card-meta"><span class="category">${esc(kinds.join(' · '))}</span>${p.genres?.length?`<span>${esc(p.genres.join(' · '))}</span>`:''}</div><h3>${esc(p.title)}</h3>
+  <p class="catalog-price">${quickSave&&Number(p.price_vnd)>0?'<span>Premium</span> · ':''}${esc(p.moderation_state==='TAKEN_DOWN'?'Đã gỡ do kiểm duyệt':p.withdrawn_at?'Đã gỡ khỏi Khám phá':p.moderation_state==='TEMP_HIDDEN'?'Tạm ẩn · Người mua vẫn xem được':p.status==='HIDDEN'?'Không khả dụng':price(p))}</p></div></a>
+  ${quickSave?`<button type="button" class="card-save" data-quick-save="${esc(p.id)}" aria-label="Lưu ${esc(p.title)} vào Xem sau" aria-pressed="${savedForBrowse.has(p.id)}">${savedForBrowse.has(p.id)?'Đã lưu':'Lưu'}</button>`:''}
+  ${video?'<button type="button" class="video-card-toggle" aria-label="Phát video đại diện" data-video-toggle>▶</button>':''}</article>`;
 }
-const grid = (posts,msg='Chưa có tác phẩm nào.') => posts.length?`<div class="grid">${posts.map(card).join('')}</div>`:empty(msg);
-const groupCards = (groups, route) => groups.length?`<div class="grid compact-collections">${groups.map(g=>`<article class="card"><a class="card-body" href="#${route}/${encodeURIComponent(g.id)}"><span class="category">${g.total} tác phẩm</span><h3>${esc(g.title)}</h3><p>${esc(g.description)}</p></a></article>`).join('')}</div>`:empty('Chưa có nội dung trong mục này.');
+const grid = (posts,msg='Chưa có tác phẩm nào.',quickSave=false) => posts.length?`<div class="grid">${posts.map(post=>card(post,quickSave)).join('')}</div>`:empty(msg);
+const groupCards = (groups, route) => groups.length?`<div class="grid compact-collections">${groups.map(g=>`<article class="card"><a href="#${route}/${encodeURIComponent(g.id)}">${route==='collection'? `<div class="visual real-cover collection-cover">${g.cover_id?`<img src="/api/demo/media/${encodeURIComponent(g.cover_id)}" alt="" loading="lazy">`:'<span>Chưa có ảnh bìa</span>'}</div>`:''}<div class="card-body"><span class="category">${g.total} tác phẩm</span><h3>${esc(g.title)}</h3><p>${esc(g.description)}</p></div></a></article>`).join('')}</div>`:empty('Chưa có nội dung trong mục này.');
 const shelf = (title, body, action='') => `<section class="section"><div class="heading"><h2>${title}</h2>${action}</div>${body}</section>`;
 async function home() {
- const [catalog,collections,events] = await Promise.all([api('catalog'),api('collections'),api('events')]);
- return document.querySelector('#hero-template').innerHTML +
-  shelf('Mới phát hành',grid(catalog.posts.slice(0,6),'Chưa có bài phát hành.'),link('Xem tất cả','#browse'))+
-  (events.length?shelf('Sự kiện',groupCards(events,'event')):'')+
-  shelf('Bộ sưu tập',groupCards(collections.slice(0,4),'collection'),link('Xem tất cả','#collections'));
+ const [catalog,photos,videos,mixed,collections,events] = await Promise.all([
+  api('catalog'),api('catalog?kind=IMAGE'),api('catalog?kind=VIDEO'),api('catalog?kind=MIXED'),api('collections'),api('events')
+ ]);
+ const activeEvents=events.filter(event=>event.total>0).slice(0,2);
+ const highlights=await Promise.allSettled(activeEvents.map(event=>api('events/'+encodeURIComponent(event.id))));
+ const featured=[...new Map(highlights.flatMap(result=>result.value?.posts??[]).map(post=>[post.id,post])).values()];
+ const picks=(featured.length?featured:catalog.posts).slice(0,3);
+ const shown=new Set(picks.map(post=>post.id));
+ function take(posts) {
+  const entries=posts.filter(post=>!shown.has(post.id)).slice(0,4);
+  for(const post of entries)shown.add(post.id);
+  return entries;
+ }
+ const recent=take(catalog.posts);
+ const mediaShelf=(title,entries,route)=>entries.length?shelf(title,grid(entries),link('Xem thêm',route)):'';
+ return '<div class="catalog-page catalog-home">'+document.querySelector('#hero-template').innerHTML +
+  '<nav class="home-format-nav" aria-label="Duyệt theo định dạng"><a href="#browse/IMAGE">Ảnh</a><a href="#browse/VIDEO">Video</a><a href="#browse/MIXED">Hỗn hợp</a></nav>'+
+  shelf('Nổi bật',picks.length?`<div class="feature-gallery" data-count="${picks.length}">${picks.map(post=>card(post)).join('')}</div>`:empty('Chưa có tác phẩm nổi bật.'),link('Vào Khám phá','#browse'))+
+  mediaShelf('Mới phát hành',recent,'#browse')+
+  mediaShelf('Ảnh',take(photos.posts),'#browse/IMAGE')+
+  mediaShelf('Video',take(videos.posts),'#browse/VIDEO')+
+  mediaShelf('Hỗn hợp',take(mixed.posts),'#browse/MIXED')+
+  (activeEvents.length?shelf('Sự kiện',groupCards(activeEvents,'event')):'')+
+  shelf('Bộ sưu tập',groupCards(collections.slice(0,4),'collection'),link('Xem tất cả','#collections'))+'</div>';
 }
 let browseTimer, browseRequest = 0;
+let savedForBrowse = new Set();
 
 function browseSearch() {
  const {include,exclude,...basic}=filters;
@@ -190,7 +214,7 @@ function browseSearch() {
 }
 
 function browseResults(posts) {
- return grid(posts,'Không tìm thấy tác phẩm phù hợp.')+
+ return grid(posts,'Không tìm thấy tác phẩm phù hợp.',true)+
   `<div class="button-row pagination">${filters.offset?button('Trang trước','previous'):''}${posts.length===25&&filters.offset<3000?button('Trang sau','next'):''}</div>`;
 }
 
@@ -223,20 +247,30 @@ function filterBrowse(form, delay=0) {
  const tags=[...data].filter(([key])=>key.startsWith('genre:'));
  const selected=mode=>tags.filter(([,value])=>value===mode).map(([key])=>key.slice(6));
  filters={q:q.trim(),kind,sort,pay,days,offset:0,include:selected('yes'),exclude:selected('no')};
+ form.querySelectorAll('[data-topic]').forEach(choice=>
+  choice.setAttribute('aria-pressed',String(filters.include.includes(choice.dataset.topic))));
+ const active=Number(sort!=='new')+Number(Boolean(pay))+Number(Boolean(days))+filters.include.length+filters.exclude.length;
+ form.querySelector('[data-filter-count]').textContent=active?` (${active})`:'';
  updateBrowse(form,delay);
 }
 
 async function discover() {
  const {include,exclude}=filters;
- const [catalog,genreList]=await Promise.allSettled([browseSearch(),api('genres?all=1')]);
+ const [catalog,genreList,saved]=await Promise.allSettled([browseSearch(),api('genres'),user?api('saved'):null]);
+ savedForBrowse=new Set((saved.value?.posts??[]).map(post=>post.id));
  const genres=genreList.value?.genres??[];
  const option=(key,label,current)=>`<option value="${key}" ${key===current?'selected':''}>${label}</option>`;
- return heading('Khám phá')+`<form id="browse-form" class="browse-controls">
-  <div class="browse-search">
+ const formats=[['','Tất cả'],['IMAGE','Ảnh'],['VIDEO','Video'],['MIXED','Hỗn hợp']];
+ return '<div class="catalog-page catalog-discover">'+heading('Khám phá')+`<form id="browse-form" class="browse-controls">
+  <div class="catalog-search browse-search">
    <input name="q" type="search" aria-label="Từ khóa" placeholder="Tìm tên, mô tả hoặc thể loại" maxlength="100" value="${esc(filters.q)}">
    <button type="submit" class="btn dark">Tìm kiếm</button>
   </div>
-  <select name="kind" aria-label="Định dạng">${option('','Mọi định dạng',filters.kind)}${option('IMAGE','Ảnh',filters.kind)}${option('VIDEO','Video',filters.kind)}</select>
+  <input type="hidden" name="kind" value="${esc(filters.kind)}">
+  <div class="browse-formats" role="group" aria-label="Định dạng">${formats.map(([value,label])=>`<button type="button" data-format="${value}" aria-pressed="${filters.kind===value}">${label}</button>`).join('')}</div>
+  ${genres.length?`<div class="browse-topics" role="group" aria-label="Chủ đề nhanh">${genres.slice(0,6).map(g=>`<button type="button" data-topic="${esc(g.id)}" aria-pressed="${include.includes(g.id)}">${esc(g.name)}</button>`).join('')}</div>`:''}
+  <div class="browse-filter-row"><details class="browse-filter"><summary>Bộ lọc<span data-filter-count>${include.length+exclude.length+Number(Boolean(filters.pay))+Number(Boolean(filters.days))+Number(filters.sort!=='new')? ` (${include.length+exclude.length+Number(Boolean(filters.pay))+Number(Boolean(filters.days))+Number(filters.sort!=='new')})`:''}</span></summary>
+  <div class="browse-options">
   <select name="sort" aria-label="Sắp xếp">${option('new','Mới nhất',filters.sort)}${option('old','Cũ nhất',filters.sort)}</select>
   <select name="pay" aria-label="Mức giá">${option('','Mọi mức giá',filters.pay)}${option('free','Miễn phí',filters.pay)}${option('premium','Trả phí',filters.pay)}</select>
   <select name="days" aria-label="Thời gian đăng">${option('','Mọi thời gian',filters.days)}${option('7','7 ngày qua',filters.days)}${option('30','30 ngày qua',filters.days)}${option('older','Cũ hơn 30 ngày',filters.days)}</select>
@@ -245,14 +279,40 @@ async function discover() {
     const selected=include.includes(g.id)?'yes':exclude.includes(g.id)?'no':'';
     return `<label>${esc(g.name)}<select name="genre:${esc(g.id)}">${option('','Bỏ qua',selected)}${option('yes','Có',selected)}${option('no','Không',selected)}</select></label>`;
    }).join('')}</details>`:''}
-  <p class="muted browse-status" role="status">${catalog.status==='rejected'?'Chưa tải được kết quả. Nhấn Tìm kiếm để thử lại.':''}</p>
-  </form><div id="browse-results">${catalog.value?browseResults(catalog.value.posts):''}</div>`;
+  </div></details><button type="button" class="browse-reset" data-browse-reset>Xóa bộ lọc</button>
+  <p class="muted browse-status" role="status">${catalog.status==='rejected'?'Chưa tải được kết quả. Nhấn Tìm kiếm để thử lại.':catalog.value.posts.length?`Hiển thị ${catalog.value.posts.length} tác phẩm.`:'Không có kết quả.'}</p></div>
+  </form><div id="browse-results">${catalog.value?browseResults(catalog.value.posts):''}</div></div>`;
 }
-function login() {
- return user?heading('Bạn đã đăng nhập',user.alias,link('Tài khoản','#account')):heading('Đăng nhập PCK')+
- `<form id="login-form" class="surface edit-form"><label>Tài khoản<select name="alias"><option>user1</option><option>user2</option><option>user3</option><option>admin</option></select></label>
- <label>Mật khẩu<input name="password" type="password" required maxlength="128" autocomplete="current-password"></label>
- <div class="button-row"><button class="btn dark">Đăng nhập</button>${link('Tiếp tục với vai trò Khách','#browse')}</div><p role="status" class="muted"></p></form>`;
+function welcome() {
+ return `<section class="welcome-screen"><div class="welcome-copy">
+  <h1><span>PCK.</span><br>Kho ảnh<br>và video.</h1>
+  <p>Khám phá góc nhìn mới, đăng tác phẩm của bạn và tìm nội dung phù hợp cho dự án tiếp theo.</p>
+  <div class="button-row">${link('Đăng nhập','#login')}${link('Đăng ký','#register','dark')}</div>
+ </div><div class="welcome-art" aria-hidden="true">
+  <div class="welcome-photo"></div>
+ </div></section>
+ <section class="welcome-guide" aria-labelledby="welcome-guide-title">
+  <header><h2 id="welcome-guide-title">Khám phá và chia sẻ tác phẩm</h2>
+   <p>Tìm ảnh, video và bộ sưu tập theo chủ đề, hoặc đăng tác phẩm của riêng bạn.</p>
+  </header>
+  <div class="welcome-topics">
+   <article><h3>Ảnh, video và bộ sưu tập</h3><p>Duyệt theo định dạng và thể loại. Bạn có thể xem các bài công khai khi chưa đăng nhập.</p><a href="#browse">Vào Khám phá <span aria-hidden="true">→</span></a></article>
+   <article><h3>Nội dung Premium</h3><p>Xem trước ảnh hoặc một đoạn video. Sau khi mua, bạn có thể tìm và tải bản đầy đủ trong mục Đã mua.</p></article>
+   <article><h3>Dành cho người sáng tạo</h3><p>Đăng nhiều ảnh và video trong một bài, chọn tệp đại diện và đặt giá cho phần Premium.</p><a href="#upload">Đăng tác phẩm <span aria-hidden="true">→</span></a></article>
+  </div>
+ </section>`;
+}
+function authForm(register=false) {
+ if(user)return heading('Bạn đã đăng nhập',user.alias,link('Tài khoản','#account'));
+ const label=register?'Tạo tài khoản':'Đăng nhập';
+ return `<section class="auth-screen">${heading(label)}<form id="${register?'register':'login'}-form" class="surface edit-form">
+ ${register?'<label>Tên hiển thị<input name="displayName" required maxlength="80" autocomplete="nickname"></label>':''}
+ ${register?'<label>Email<input name="email" type="email" required maxlength="254" autocomplete="username"></label>':'<label>Tên đăng nhập hoặc email<input name="identifier" type="text" required maxlength="254" autocapitalize="none" autocomplete="username" placeholder="Ví dụ: user1"></label>'}
+ <label>Mật khẩu<input name="password" type="password" required ${register?'minlength="8"':''} maxlength="128" autocomplete="${register?'new-password':'current-password'}"></label>
+ <div class="button-row"><button class="btn dark">${label}</button>${register?link('Đã có tài khoản','#login'):link('Tạo tài khoản','#register')}</div>
+ <p role="status" class="muted"></p>
+ <a href="#home">Tiếp tục với vai trò khách</a>
+ </form></section>`;
 }
 const loginRequired = message => heading('Bạn đang xem với vai trò Khách',message)+button('Đăng nhập','login',location.hash.slice(1)||'account');
 function genreOptions(genres,assigned=[]) {
@@ -276,7 +336,7 @@ function postActions(p) {
   button(p.status==='DRAFT'?'Xóa nháp':'Gỡ bài','remove-post',p.id,p.status);
 }
 function publishedEditor({post,media,genres:assigned},genres) {
- const publicMedia=media.filter(file=>!Number(post.price_vnd)||(!file.premium&&file.kind==='IMAGE'));
+ const publicMedia=media.filter(file=>!file.premium);
  return heading('Sửa bài đã phát hành','Bạn có thể sửa thông tin, ảnh đại diện và chế độ tự chuyển ảnh.',link('Hủy',postLink(post)))+
   `<form id="published-edit" class="surface edit-form" data-id="${esc(post.id)}">
   <input name="revision" type="hidden" value="${esc(post.revision)}">
@@ -322,22 +382,30 @@ function gallery(media,i=0) {
  if(!media.length)return empty('Chưa có tệp để hiển thị.');
  const m=media[i];
  let view='<span>Không có tệp trong kho local</span>';
- if(m.locked)view='<strong>Nội dung trả phí</strong>';
- else if(m.url&&m.kind==='VIDEO')view=`<video src="${esc(m.url)}" controls playsinline preload="metadata"></video>`;
- else if(m.url&&m.kind==='IMAGE')view=`<img src="${esc(m.url)}" alt="${esc(m.filename)}">`;
- return `<div class="preview media-stage">${view}</div><div class="media-thumbs">${media.map((f,k)=>`<button type="button" class="btn light" data-media="${k}" aria-pressed="${i===k}">${kindNames[f.kind]||'Tệp'} ${k+1}${f.locked?' · Khóa':f.premium?' · Premium':''}</button>`).join('')}
+ const source=m.url||m.previewUrl;
+ if(source&&m.kind==='VIDEO')view=`<video src="${esc(source)}" controls ${m.locked?'controlslist="nodownload"':''} playsinline preload="metadata"></video>`;
+ else if(source&&m.kind==='IMAGE')view=`<img src="${esc(source)}" alt="${esc(m.filename)}">`;
+ else if(m.locked)view='<strong>Nội dung trả phí</strong>';
+ return `<div class="preview media-stage">${view}</div><div class="detail-file"><div><strong>${esc(m.filename)}</strong><span>${m.locked?(m.previewUrl?'Bản xem trước Premium':'Tệp Premium chưa mở'):m.premium?'Tệp Premium':'Tệp công khai'}</span></div>${m.url?`<a class="btn dark" href="${esc(m.url)}" download="${esc(m.filename)}">Tải bản gốc</a>`:''}</div>
+ <div class="media-thumbs" role="group" aria-label="Tệp trong tác phẩm">${media.map((f,k)=>`<button type="button" class="btn light" data-media="${k}" aria-pressed="${i===k}">${kindNames[f.kind]||'Tệp'} ${k+1}${f.premium?' · Premium':''}</button>`).join('')}
  ${media.filter(f=>f.kind==='IMAGE'&&f.url).length>1?`<button type="button" class="btn light" data-action="cycle" aria-pressed="${Boolean(cycleOverrides.get(galleryPost))}">${cycleOverrides.get(galleryPost)?'Dừng tự chuyển':'Tự chuyển ảnh'}</button>`:''}</div>
-  <p>${esc(m.filename)}${m.url?` · <a href="${esc(m.url)}" download="${esc(m.filename)}">Tải tệp</a>`:''}</p>`;
+  `;
 }
 async function detail(id) {
  const data=await api('catalog/'+encodeURIComponent(id));
  const {post,media}=data;
  const published=post.status==='PUBLISHED';
+ const premiumCount=media.filter(file=>file.premium).length;
+ const locked=media.some(file=>file.locked);
  const form=(name,label)=>`<form id="${name}" data-id="${esc(id)}"><input name="text" required maxlength="1000" aria-label="${label}" placeholder="${label}"><button class="btn light">Gửi</button><p role="status"></p></form>`;
  return {media,post, html:heading(post.title,post.author||'')+`<div class="detail"><section id="post-media"></section>
- <aside class="surface"><p class="category">${esc(published?price(post):postStatus(post))}</p><p>${esc(post.description)}</p>
+ <aside class="surface detail-summary"><p class="category">${esc(published?(premiumCount?'Premium':'Miễn phí'):postStatus(post))}</p>
+ <h2>${esc(published?price(post):post.title)}</h2>
+ <p>${media.length} tệp trong tác phẩm${premiumCount?` · ${premiumCount} tệp Premium`:''}</p>
+ ${published&&locked?`<p>Một lần mua mở ${premiumCount} tệp Premium. Mua thử không thu tiền.</p><div class="detail-purchase">${button('Mua thử','test-purchase',id,post.price_vnd)}</div>`:''}
+ ${premiumCount&&!locked?'<p>Chọn một tệp để tải bản gốc.</p>':''}
+ ${post.description?`<p class="detail-description">${esc(post.description)}</p>`:''}
  ${data.canManage?`<div class="button-row post-actions">${data.canPublish?button('Phát hành','publish',id):''}${postActions(post)}</div>`:''}
- ${published&&Number(post.price_vnd)&&media.some(f=>f.locked)?`<p>Mua thử để kiểm tra quyền xem. Không thu tiền.</p>${button('Mua thử · '+price(post),'test-purchase',id,post.price_vnd)}`:''}
  ${published?`<div class="button-row">${button((data.liked?'Bỏ thích':'Thích')+' · '+data.likes,data.liked?'unlike':'like',id)}${button(data.saved?'Bỏ lưu':'Xem sau',data.saved?'unsave':'save',id)}</div>`:''}</aside></div>
  ${published?`<section class="surface comments"><h2>Bình luận</h2>${data.comments.length?data.comments.map(c=>`<p><strong>${esc(c.author||'Tài khoản không khả dụng')}</strong> · ${esc(c.body)}</p>`).join(''):'<p>Chưa có bình luận.</p>'}
  ${user?form('comments-form','Viết bình luận')+`<details><summary>Báo cáo bài</summary>${form('report-form','Lý do báo cáo')}</details>`:button('Đăng nhập để bình luận','login','post/'+id)}</section>`:''}`};
@@ -420,9 +488,10 @@ async function render() {
  clearInterval(heroTimer);
  clearInterval(galleryTimer);
  const request=++version;
- const [route,id]=(location.hash.slice(1)||'home').split('/');
+ const [route,id]=(location.hash.slice(1)||(user?'home':'welcome')).split('/');
  clearUploadFiles();
  document.body.classList.toggle('admin-mode',route==='admin'&&user?.role==='ADMIN');
+ document.body.classList.toggle('welcome-mode',route==='welcome');
  adminLink.hidden=user?.role!=='ADMIN';
  loginLink.href=user?'#account':'#login';
  loginLink.textContent=user?user.alias:'Đăng nhập';
@@ -430,7 +499,10 @@ async function render() {
   const parent=({post:'browse',login:'account',events:'home',event:'home',collections:'more',collection:'more','collection-new':'more'})[route]||route;
   if(a.hash==='#'+parent)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');
  });
- const pages={home,browse:discover,login,upload:()=>upload(),edit:()=>upload(id),more,account:()=>account(id),admin:()=>admin(id),
+ const pages={home,browse:()=>{
+  if(['IMAGE','VIDEO','MIXED'].includes(id))filters={...filters,kind:id,q:'',sort:'new',pay:'',days:'',offset:0,include:[],exclude:[]};
+  return discover();
+ },welcome,login:()=>authForm(),register:()=>authForm(true),upload:()=>upload(),edit:()=>upload(id),more,account:()=>account(id),admin:()=>admin(id),
   collections:async()=>heading('Bộ sưu tập','',link('Tạo bộ sưu tập','#collection-new','dark'))+groupCards(await api('collections'),'collection'),
   collection:()=>groupPage('collections',id),event:()=>groupPage('events',id),'collection-new':newCollection,post:()=>detail(id)};
  app.innerHTML=empty('Đang tải…');
@@ -443,7 +515,7 @@ async function render() {
   if(form){
    if(page.draft) {
     uploadFiles.push(...page.draft.media.map(file=>({
-     id:file.id,file:{name:file.filename,size:file.size},preview:file.url,video:file.kind==='VIDEO',premium:file.premium
+     id:file.id,file:{name:file.filename,size:file.size},preview:file.url,video:file.kind==='VIDEO',premium:file.premium,previewStart:file.previewStart
     })));
     uploadCover=uploadFiles[0]||null;
    }
@@ -460,7 +532,83 @@ async function render() {
   if (hero) cycleHero(hero);
  }catch(error){if(request===version)app.innerHTML=heading('Không thể mở trang')+empty(error.message);}
 }
+function playCardVideo(video) {
+ // Keep previews silent even when playback starts from a click.
+ video.muted=true;
+ video.play().catch(()=>{});
+}
+for(const [eventName,isEntering] of [['pointerover',true],['pointerout',false]]){
+ app.addEventListener(eventName,event=>{
+  if(event.pointerType!=='mouse'||window.matchMedia('(prefers-reduced-motion: reduce)').matches)return;
+  const card=event.target.closest('.video-card');
+  if(!card||card.contains(event.relatedTarget))return;
+  const video=card.querySelector('video');
+  if(isEntering)playCardVideo(video);
+  else video.pause();
+ });
+}
+for(const eventName of ['playing','pause','ended']){
+ app.addEventListener(eventName,event=>{
+  const control=event.target.closest('.video-card')?.querySelector('[data-video-toggle]');
+  if(!control)return;
+  const playing=eventName==='playing';
+  control.textContent=playing?'❚❚':'▶';
+  control.setAttribute('aria-label',playing?'Tạm dừng video đại diện':'Phát video đại diện');
+ },true);
+}
 app.addEventListener('click',async event=>{
+ const format=event.target.closest('[data-format]');
+ const reset=event.target.closest('[data-browse-reset]');
+ const topic=event.target.closest('[data-topic]');
+ if(format||reset||topic){
+  const form=(format||reset||topic).closest('#browse-form');
+  if(reset){
+   form.elements.q.value='';
+   for(const select of form.querySelectorAll('select'))select.selectedIndex=0;
+  }
+  if(format||reset)form.elements.kind.value=format?.dataset.format||'';
+  if(topic){
+   const genre=form.elements.namedItem('genre:'+topic.dataset.topic);
+   if(genre)genre.value=genre.value==='yes'?'':'yes';
+  }
+  for(const choice of form.querySelectorAll('[data-format]')){
+   choice.setAttribute('aria-pressed',String(choice.dataset.format===form.elements.kind.value));
+  }
+  filterBrowse(form);
+  return;
+ }
+ const quickSave=event.target.closest('[data-quick-save]');
+ if(quickSave){
+  if(!user){
+   afterLogin='browse';
+   notice('Đăng nhập để lưu tác phẩm.');
+   go('login');
+   return;
+  }
+  const id=quickSave.dataset.quickSave;
+  const wasSaved=savedForBrowse.has(id);
+  quickSave.disabled=true;
+  try {
+   await api('catalog/'+encodeURIComponent(id)+'/save',{method:wasSaved?'DELETE':'PUT'});
+   if(wasSaved)savedForBrowse.delete(id);
+   else savedForBrowse.add(id);
+   const current=app.querySelector('[data-quick-save="'+CSS.escape(id)+'"]');
+   if(current){
+    current.setAttribute('aria-pressed',String(!wasSaved));
+    current.textContent=wasSaved?'Lưu':'Đã lưu';
+   }
+   notice(wasSaved?'Đã bỏ lưu tác phẩm.':'Đã thêm vào Xem sau.');
+  }catch(error){notice(error.message);}
+  finally{quickSave.disabled=false;}
+  return;
+ }
+ const videoToggle=event.target.closest('[data-video-toggle]');
+ if(videoToggle){
+  const video=videoToggle.closest('.video-card').querySelector('video');
+  if(video.paused)playCardVideo(video);
+  else video.pause();
+  return;
+ }
  const uploadControl=event.target.closest('[data-upload-action]');
  if(uploadControl){
   const form=uploadControl.closest('#upload-form');
@@ -472,10 +620,6 @@ app.addEventListener('click',async event=>{
   const feedback=form.querySelector('#upload-feedback');
   feedback.textContent='';
   if(uploadAction==='cover'){
-   if(entry.video&&uploadFiles.some(file=>!file.video)){
-    feedback.textContent='Chọn một ảnh làm đại diện cho bài có ảnh.';
-    return;
-   }
    if(entry.premium)feedback.textContent='Tệp đã được chuyển sang công khai vì được chọn làm đại diện.';
    entry.premium=false;
    uploadCover=entry;
@@ -582,6 +726,10 @@ app.addEventListener('change',event=>{
  }
 });
 app.addEventListener('input',event=>{
+ if(event.target.matches('[data-preview-start]')){
+  const entry=uploadFiles[Number(event.target.dataset.previewStart)];
+  if(entry)entry.previewStart=event.target.value;
+ }
  if(event.target.name==='q'&&event.target.form?.id==='browse-form')filterBrowse(event.target.form,300);
  if(event.target.name==='price'&&event.target.form?.id==='upload-form')uploadPriceSummary(event.target.form);
 });
@@ -606,6 +754,11 @@ app.addEventListener('drop',event=>{
 app.addEventListener('submit',async event=>{
  event.preventDefault();
  const form=event.target, data=new FormData(form);
+ if(form.id==='home-search'){
+  filters={q:String(data.get('q')||'').trim(),kind:'',sort:'new',pay:'',days:'',offset:0,include:[],exclude:[]};
+  go('browse');
+  return;
+ }
  if(form.id==='browse-form'){
   filterBrowse(form);
   return;
@@ -614,8 +767,8 @@ app.addEventListener('submit',async event=>{
  submit.disabled=true;
  status.textContent='Đang xử lý…';
  try {
-  if(form.id==='login-form'){
-   user=await json('login','POST',Object.fromEntries(data));
+  if(form.id==='login-form'||form.id==='register-form'){
+   user=await json(form.id==='register-form'?'register':'login','POST',Object.fromEntries(data));
    const route=afterLogin;afterLogin='account';go(route);
   }else if(form.id==='upload-form'){
    if(uploadBusy)return;
@@ -660,5 +813,9 @@ app.addEventListener('submit',async event=>{
  }catch(error){status.textContent=error.message;}
  finally{submit.disabled=false;}
 });
+const topbar=document.querySelector('.topbar');
+function updateTopbar(){topbar.classList.toggle('is-scrolled',window.scrollY>12);}
+window.addEventListener('scroll',updateTopbar,{passive:true});
+updateTopbar();
 window.addEventListener('hashchange',()=>{render();window.scrollTo(0,0)});
 api('session').then(result=>{user=result.user}).catch(()=>{}).finally(render);

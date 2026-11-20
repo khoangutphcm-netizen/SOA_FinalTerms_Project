@@ -11,7 +11,10 @@ const services = Object.freeze({
   community: 'COMMUNITY_DATABASE_URL'
 });
 const assets = {
-  '/': ['index.html', 'text/html; charset=utf-8'],
+  '/assets/welcome/welcome.png': ['assets/welcome/welcome.png', 'image/png'],
+  '/assets/welcome/welcome2.png': ['assets/welcome/welcome2.png', 'image/png'],
+  '/assets/welcome/welcome3.png': ['assets/welcome/welcome3.png', 'image/png'],
+  '/': ['concept/index.html', 'text/html; charset=utf-8'],
   '/db-check': ['index.html', 'text/html; charset=utf-8'],
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
   '/demo': ['concept/index.html', 'text/html; charset=utf-8'],
@@ -21,6 +24,15 @@ const assets = {
   '/demo-assets/screens.css': ['concept/screens.css', 'text/css; charset=utf-8']
 };
 const inFlight = new Map();
+const authWindows = new Map();
+
+function allowAuth(path) {
+  const minute = Math.floor(Date.now()/60000);
+  const previous = authWindows.get(path);
+  const count = previous?.minute===minute ? previous.count+1 : 1;
+  authWindows.set(path,{minute,count});
+  return count <= (path.endsWith('/register') ? 20 : 60);
+}
 const heroFormats = [
   ['webp', 'image/webp'],
   ['jpg', 'image/jpeg'],
@@ -76,7 +88,8 @@ function proxyContent(req,res) {
     res.writeHead(response.statusCode,response.headers);
     response.pipe(res);
   });
-  upstream.setTimeout(60000,() => upstream.destroy(new Error('Content timeout')));
+  const savesMedia = req.url === '/api/demo/upload' || req.url.startsWith('/api/demo/edit-draft/');
+  upstream.setTimeout(savesMedia ? 210000 : 60000,() => upstream.destroy(new Error('Content timeout')));
   upstream.on('error',() => {
     req.unpipe(upstream);
     req.resume();
@@ -121,7 +134,14 @@ const server = createServer(async (req, res) => {
     }
     return send(res, 200, await inFlight.get(service));
   }
-  if (path.startsWith('/api/demo/')) return proxyContent(req, res);
+  if (path.startsWith('/api/demo/')) {
+    if (req.method==='POST' && req.headers['x-pck-demo']==='1' &&
+        ['/api/demo/login','/api/demo/register'].includes(path) && !allowAuth(path)) {
+      res.setHeader('Retry-After','60');
+      return send(res,429,{message:'Có quá nhiều yêu cầu. Hãy thử lại sau một phút.'});
+    }
+    return proxyContent(req, res);
+  }
   send(res, 404, { message: 'Không tìm thấy đường dẫn.' });
 });
 const port = Number(process.env.PORT || 3100);

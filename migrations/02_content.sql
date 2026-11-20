@@ -54,6 +54,7 @@ CREATE TABLE assets (
     format_id uuid NOT NULL REFERENCES asset_formats(id),
     original_key text NOT NULL UNIQUE CHECK (trim(original_key) <> ''),
     preview_key text CHECK (preview_key <> original_key AND trim(preview_key) <> ''),
+    preview_start_seconds integer NOT NULL DEFAULT 0 CHECK (preview_start_seconds BETWEEN 0 AND 86400),
     filename text NOT NULL CHECK (trim(filename) <> ''),
     size_bytes bigint NOT NULL CHECK (size_bytes > 0),
     position integer NOT NULL CHECK (position > 0),

@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdir, writeFile, unlink } from 'node:fs/promises';
 import { connect } from './demo-accounts.mjs';
 import { callService } from './internal-services.mjs';
+import { makePreview } from './media-preview.mjs';
 import { handleCatalog, problem, removeLocalAssets, setPostGenre } from './demo-catalog.mjs';
 
 const sessions = new Map();
@@ -38,7 +39,9 @@ async function saveUpload(userId, { title, description, genreId, price, autoCycl
   try {
     await client.connect();
     await client.query('BEGIN');
-    let post, removed=[];
+    let post;
+    const removed=[];
+    const byId=new Map();
     if (draftId) {
       const {rows:[draft]}=await client.query(
         'SELECT id,status,xmin::text AS revision FROM public.posts WHERE id=$1 AND author_id=$2 FOR UPDATE',[draftId,userId]);
@@ -47,19 +50,16 @@ async function saveUpload(userId, { title, description, genreId, price, autoCycl
       post=draft;
       const retained=files.filter(file=>file.id).map(file=>file.id);
       const {rows:existing}=await client.query(`
-        SELECT a.id,a.size_bytes,f.kind FROM public.assets a JOIN public.asset_formats f ON f.id=a.format_id
+        SELECT a.id,a.size_bytes,a.original_key,a.preview_key,a.preview_start_seconds,f.kind FROM public.assets a JOIN public.asset_formats f ON f.id=a.format_id
         WHERE a.post_id=$1 AND a.id=ANY($2::uuid[]) AND a.status='READY'`,[draftId,retained]);
       if(existing.length!==retained.length)throw problem(400,'Một tệp giữ lại không thuộc bản nháp này.');
-      const byId=new Map(existing.map(file=>[file.id,file]));
+      for (const file of existing) byId.set(file.id,file);
       const size=files.reduce((total,file)=>total+(file.id?Number(byId.get(file.id).size_bytes):file.bytes.length),0);
       if(size>maxTotal)throw problem(413,'Tổng dung lượng tối đa 40 MiB.');
-      if(price>0&&files[0].id&&byId.get(files[0].id).kind!=='IMAGE'){
-        throw problem(400,'Ảnh đại diện của bài premium phải là ảnh.');
-      }
       await client.query('SET CONSTRAINTS ALL DEFERRED');
-      const result=await client.query('DELETE FROM public.assets WHERE post_id=$1 AND NOT (id=ANY($2::uuid[])) RETURNING original_key',
+      const result=await client.query('DELETE FROM public.assets WHERE post_id=$1 AND NOT (id=ANY($2::uuid[])) RETURNING original_key,preview_key',
         [draftId,retained]);
-      removed=result.rows.map(row=>row.original_key);
+      removed.push(...result.rows.flatMap(row=>[row.original_key,row.preview_key]));
     }
     const {rows:formats} = await client.query('SELECT id,extension,mime_type FROM public.asset_formats WHERE enabled');
     const formatIds = new Map(formats.map(f=>[f.extension+' '+f.mime_type,f.id]));
@@ -78,20 +78,32 @@ async function saveUpload(userId, { title, description, genreId, price, autoCycl
     const assetIds = [];
     for (const [index,file] of files.entries()) {
       const purpose=price>0&&!file.premium?'PROMO':'FULL';
+      const existing=byId.get(file.id);
+      const video=existing ? existing.kind==='VIDEO' : file.extension==='mp4';
+      const start=video&&file.premium ? file.previewStart : 0;
+      let original=existing?.original_key;
+      if (!existing) {
+        const key=randomUUID()+'.'+file.extension;
+        const path=new URL(key,directory);
+        await writeFile(path,file.bytes,{flag:'wx'});
+        written.push(path);
+        original='local-demo/'+key;
+      }
+      const preview=file.premium
+        ? (existing?.preview_key && existing.preview_start_seconds===start
+          ? existing.preview_key : await makePreview(original,video,start,written))
+        : null;
+      if(existing?.preview_key && existing.preview_key!==preview)removed.push(existing.preview_key);
       if(file.id){
-        await client.query('UPDATE public.assets SET position=$2,purpose=$3 WHERE id=$1',[file.id,index+1,purpose]);
+        await client.query('UPDATE public.assets SET position=$2,purpose=$3,preview_key=$4,preview_start_seconds=$5 WHERE id=$1',
+          [file.id,index+1,purpose,preview,start]);
         assetIds.push(file.id);
         continue;
       }
-      const key=randomUUID()+'.'+file.extension;
-      const path=new URL(key,directory);
-      await writeFile(path,file.bytes,{flag:'wx'});
-      written.push(path);
       const {rows:[asset]}=await client.query(`
-        INSERT INTO public.assets (post_id,format_id,original_key,filename,size_bytes,position,purpose,status)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,'READY') RETURNING id`,
-        [post.id,formatIds.get(file.extension+' '+file.mime),'local-demo/'+key,file.name,file.bytes.length,index+1,
-         purpose]);
+        INSERT INTO public.assets (post_id,format_id,original_key,filename,size_bytes,position,purpose,preview_key,preview_start_seconds,status)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'READY') RETURNING id`,
+        [post.id,formatIds.get(file.extension+' '+file.mime),original,file.name,file.bytes.length,index+1,purpose,preview,start]);
       assetIds.push(asset.id);
     }
     committing = true;
@@ -114,10 +126,11 @@ async function readJson(req) {
 }
 
 export async function handleDemo(req, res, path, send) {
-  const media = path.startsWith('/api/demo/media/') && req.method === 'GET';
+  const media = /^\/api\/demo\/(media|preview)\//.test(path) && req.method === 'GET';
   if (!media && req.headers['x-pck-demo'] !== '1') return send(res, 403, { message: 'Yêu cầu không hợp lệ.' });
   const cookieName = 'pck_demo';
-  const cookieSettings = '; Path=/api/demo; HttpOnly; SameSite=Strict; Max-Age=';
+  const cookieSettings = '; Path=/api/demo; HttpOnly; SameSite=Strict;' +
+    (process.env.PCK_SECURE_COOKIE==='1'?' Secure;':'') + ' Max-Age=';
   const token = (req.headers.cookie || '').match(/(?:^|;\s*)pck_demo=([\w-]+)/)?.[1];
   const session = sessions.get(token);
   const active = session && session.expires > Date.now() ? session : null;
@@ -125,6 +138,7 @@ export async function handleDemo(req, res, path, send) {
   if (draftId && !uuid.test(draftId)) return send(res,404,{message:'Không tìm thấy bản nháp.'});
   const method = draftId ? 'PUT' : {
     '/api/demo/session':'GET', '/api/demo/posts':'GET', '/api/demo/login':'POST',
+    '/api/demo/register':'POST',
     '/api/demo/logout':'POST', '/api/demo/upload':'POST'
   }[path];
   if (!method) return handleCatalog(req, res, path, send, active, readJson);
@@ -138,12 +152,12 @@ export async function handleDemo(req, res, path, send) {
       res.setHeader('Set-Cookie', cookieName + '=' + cookieSettings + '0');
       return send(res, 200, { user: null });
     }
-    if (path === '/api/demo/login') {
+    if (path === '/api/demo/login' || path === '/api/demo/register') {
       const bytes = await body(req, 4096);
       if (!bytes) return send(res, 413, { message: 'Yêu cầu quá lớn.' });
       let login;
       try { login = JSON.parse(bytes.toString('utf8')); } catch {}
-      const user = await callService('IDENTITY','login',login ?? {});
+      const user = await callService('IDENTITY',path.endsWith('/register')?'register':'login',login ?? {});
       if (!user) return send(res,401,{message:'Tài khoản hoặc mật khẩu không đúng.'});
       for (const [key, session] of sessions) if (session.expires <= Date.now()) sessions.delete(key);
       sessions.delete(token);
@@ -224,16 +238,19 @@ export async function handleDemo(req, res, path, send) {
     order.unshift(cover);
     for (const index of order) {
       const entry=entries[index];
-      if(entry.id){files.push({id:entry.id,premium:premiumIndexes.has(index)});continue}
+      const premium=premiumIndexes.has(index);
+      const rawStart=form.get('previewStart:'+index) ?? '0';
+      const previewStart=Number(rawStart);
+      if(typeof rawStart!=='string'||!/^\d+$/.test(rawStart)||previewStart>86400) {
+        return send(res,400,{message:'Giây bắt đầu preview phải là số nguyên từ 0 đến 86400.'});
+      }
+      if(entry.id){files.push({id:entry.id,premium,previewStart});continue}
       const file=uploads[entry.upload];
       const extension=file.name.split('.').pop().toLowerCase();
       const bytes=Buffer.from(await file.arrayBuffer());
       const format=Object.hasOwn(signatures,extension)&&signatures[extension];
       if (!format||!format[1](bytes)) return send(res,415,{message:'Chỉ nhận JPG, PNG hoặc MP4 hợp lệ.'});
-      files.push({extension,mime:format[0],name:file.name.slice(0,180),bytes,premium:premiumIndexes.has(index)});
-    }
-    if (price>0 && !files[0].id && !files[0].mime.startsWith('image/')) {
-      return send(res,400,{message:'Ảnh đại diện của bài premium phải là JPG hoặc PNG.'});
+      files.push({extension,mime:format[0],name:file.name.slice(0,180),bytes,premium,previewStart});
     }
     const result = await saveUpload(active.id,{title,description,genreId,price,autoCycle:form.get('autoCycle')==='on',
       files,draftId,revision:form.get('revision')});
