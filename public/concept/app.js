@@ -17,18 +17,32 @@ async function cycleHero(hero) {
   if (!response.ok) return;
   const {images} = await response.json();
   if (!hero.isConnected || !images.length) return;
-  let index = 0;
-  function show() {
-   hero.style.setProperty('--hero-image', 'url("' + images[index] + '")');
-   if (images.length > 1) {
-    const preload = new Image();
-    preload.src = images[(index+1)%images.length];
-   }
+  const slides = document.createElement('div');
+  slides.className = 'hero-slides';
+  slides.setAttribute('aria-hidden', 'true');
+  hero.prepend(slides);
+  function loadSlide(src) {
+   const image = new Image();
+   image.alt = '';
+   image.src = src;
+   return image;
   }
-  show();
-  if (images.length > 1) heroTimer = setInterval(() => {
+  let index = 0;
+  let current = loadSlide(images[index]);
+  slides.append(current);
+  if (images.length < 2) return;
+  let next = loadSlide(images[1]);
+  heroTimer = setInterval(() => {
+   if (!hero.isConnected) return;
+   if (!next.complete) return;
+   if (next.naturalWidth) {
+    current.className = 'hero-slide-out';
+    next.className = 'hero-slide-in';
+    slides.replaceChildren(current, next);
+    current = next;
+   }
    index = (index+1)%images.length;
-   show();
+   next = loadSlide(images[(index+1)%images.length]);
   }, 7000);
  } catch {
   // The gradient remains visible if the image list cannot be loaded.
@@ -165,15 +179,63 @@ async function home() {
   (events.length?shelf('Sự kiện',groupCards(events,'event')):'')+
   shelf('Bộ sưu tập',groupCards(collections.slice(0,4),'collection'),link('Xem tất cả','#collections'));
 }
-async function discover() {
+let browseTimer, browseRequest = 0;
+
+function browseSearch() {
  const {include,exclude,...basic}=filters;
  const search=new URLSearchParams(basic);
  for(const id of include)search.append('include',id);
  for(const id of exclude)search.append('exclude',id);
- const [{posts},{genres}]=await Promise.all([api('catalog?'+search),api('genres?all=1')]);
+ return api('catalog?'+search);
+}
+
+function browseResults(posts) {
+ return grid(posts,'Không tìm thấy tác phẩm phù hợp.')+
+  `<div class="button-row pagination">${filters.offset?button('Trang trước','previous'):''}${posts.length===25&&filters.offset<3000?button('Trang sau','next'):''}</div>`;
+}
+
+function updateBrowse(form, delay=0) {
+ clearTimeout(browseTimer);
+ const request=++browseRequest;
+ const status=form.querySelector('[role=status]');
+ const results=document.querySelector('#browse-results');
+ status.textContent='Đang lọc…';
+ results.setAttribute('aria-busy','true');
+ browseTimer=setTimeout(async ()=>{
+  if(!form.isConnected)return;
+  try {
+   const {posts}=await browseSearch();
+   if(request!==browseRequest||!form.isConnected)return;
+   results.innerHTML=browseResults(posts);
+   status.textContent=posts.length?`Hiển thị ${posts.length} tác phẩm.`:'Không có kết quả.';
+  } catch {
+   if(request!==browseRequest||!form.isConnected)return;
+   status.textContent='Chưa cập nhật được kết quả. Nhấn Tìm kiếm để thử lại.';
+  } finally {
+   if(request===browseRequest&&form.isConnected)results.removeAttribute('aria-busy');
+  }
+ },delay);
+}
+
+function filterBrowse(form, delay=0) {
+ const data=new FormData(form);
+ const {q,kind,sort,pay,days}=Object.fromEntries(data);
+ const tags=[...data].filter(([key])=>key.startsWith('genre:'));
+ const selected=mode=>tags.filter(([,value])=>value===mode).map(([key])=>key.slice(6));
+ filters={q:q.trim(),kind,sort,pay,days,offset:0,include:selected('yes'),exclude:selected('no')};
+ updateBrowse(form,delay);
+}
+
+async function discover() {
+ const {include,exclude}=filters;
+ const [catalog,genreList]=await Promise.allSettled([browseSearch(),api('genres?all=1')]);
+ const genres=genreList.value?.genres??[];
  const option=(key,label,current)=>`<option value="${key}" ${key===current?'selected':''}>${label}</option>`;
  return heading('Khám phá')+`<form id="browse-form" class="browse-controls">
-  <input name="q" type="search" aria-label="Từ khóa" placeholder="Tìm tên, mô tả hoặc thể loại" maxlength="100" value="${esc(filters.q)}">
+  <div class="browse-search">
+   <input name="q" type="search" aria-label="Từ khóa" placeholder="Tìm tên, mô tả hoặc thể loại" maxlength="100" value="${esc(filters.q)}">
+   <button type="submit" class="btn dark">Tìm kiếm</button>
+  </div>
   <select name="kind" aria-label="Định dạng">${option('','Mọi định dạng',filters.kind)}${option('IMAGE','Ảnh',filters.kind)}${option('VIDEO','Video',filters.kind)}</select>
   <select name="sort" aria-label="Sắp xếp">${option('new','Mới nhất',filters.sort)}${option('old','Cũ nhất',filters.sort)}</select>
   <select name="pay" aria-label="Mức giá">${option('','Mọi mức giá',filters.pay)}${option('free','Miễn phí',filters.pay)}${option('premium','Trả phí',filters.pay)}</select>
@@ -183,8 +245,8 @@ async function discover() {
     const selected=include.includes(g.id)?'yes':exclude.includes(g.id)?'no':'';
     return `<label>${esc(g.name)}<select name="genre:${esc(g.id)}">${option('','Bỏ qua',selected)}${option('yes','Có',selected)}${option('no','Không',selected)}</select></label>`;
    }).join('')}</details>`:''}
-  <button class="btn dark">Tìm kiếm</button></form>`+grid(posts,'Không tìm thấy tác phẩm phù hợp.')+
-  `<div class="button-row pagination">${filters.offset?button('Trang trước','previous'):''}${posts.length===25&&filters.offset<3000?button('Trang sau','next'):''}</div>`;
+  <p class="muted browse-status" role="status">${catalog.status==='rejected'?'Chưa tải được kết quả. Nhấn Tìm kiếm để thử lại.':''}</p>
+  </form><div id="browse-results">${catalog.value?browseResults(catalog.value.posts):''}</div>`;
 }
 function login() {
  return user?heading('Bạn đã đăng nhập',user.alias,link('Tài khoản','#account')):heading('Đăng nhập PCK')+
@@ -454,7 +516,13 @@ app.addEventListener('click',async event=>{
   scheduleGallery();
   return;
  }
- if(['next','previous'].includes(action)){filters.offset+=action==='next'?25:-25;render();return}
+ if(['next','previous'].includes(action)){
+  const form=app.querySelector('#browse-form');
+  if(!form||app.querySelector('#browse-results').hasAttribute('aria-busy'))return;
+  filters.offset+=action==='next'?25:-25;
+  updateBrowse(form);
+  return;
+ }
  if(action==='login'||!user){afterLogin=id&&action==='login'?id:location.hash.slice(1)||'account';go('login');return}
  control.disabled=true;
  try {
@@ -497,6 +565,7 @@ app.addEventListener('click',async event=>{
 });
 app.addEventListener('change',event=>{
  const field=event.target;
+ if(field.form?.id==='browse-form'&&field.matches('select'))filterBrowse(field.form);
  const form=field.closest('#upload-form');
  if(!form)return;
  if(field.id==='upload-picker'){
@@ -513,6 +582,7 @@ app.addEventListener('change',event=>{
  }
 });
 app.addEventListener('input',event=>{
+ if(event.target.name==='q'&&event.target.form?.id==='browse-form')filterBrowse(event.target.form,300);
  if(event.target.name==='price'&&event.target.form?.id==='upload-form')uploadPriceSummary(event.target.form);
 });
 app.addEventListener('dragover',event=>{
@@ -537,11 +607,7 @@ app.addEventListener('submit',async event=>{
  event.preventDefault();
  const form=event.target, data=new FormData(form);
  if(form.id==='browse-form'){
-  const {q,kind,sort,pay,days}=Object.fromEntries(data);
-  const tags=[...data].filter(([key])=>key.startsWith('genre:'));
-  const selected=mode=>tags.filter(([,value])=>value===mode).map(([key])=>key.slice(6));
-  filters={q,kind,sort,pay,days,offset:0,include:selected('yes'),exclude:selected('no')};
-  render();
+  filterBrowse(form);
   return;
  }
  const submit=form.querySelector('button[type=submit]')||form.querySelector('button'), status=form.querySelector('[role=status]');
