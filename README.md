@@ -17,21 +17,50 @@ Content gọi các service khác qua HTTP nội bộ. Người dùng đăng ký 
 
 ## Việc cần làm theo ưu tiên
 
-- **P1: Nghiệp vụ và demo**: Tích hợp thanh toán sandbox; cấu hình DB và SMTP để kiểm thử OTP, đăng nhập, đăng bài và mua hàng từ giao diện. Hiện chưa có `.env` tại máy audit; test tự động dùng mock.
-- **P1: Dữ liệu và giao diện**: Danh sách Xem sau và Đã mua chỉ lấy 50 bài gần nhất. Cần phân trang và sửa trạng thái nút lưu trong trang khám phá khi có hơn 50 bài đã lưu.
-- **P1: Bảo vệ xác thực**: Giới hạn đăng nhập và đăng ký hiện dùng chung theo đường dẫn cho mọi người dùng. Cần giới hạn theo nguồn hoặc tài khoản để một người không chặn người khác.
-- **P2: Tiêu chí triển khai và giám sát**: Bổ sung Docker Compose, Prometheus và dashboard Grafana cho các service. Docker đang để làm sau theo kế hoạch hiện tại. Kiểm thử ngrok khi có môi trường chạy.
+- **P1: Nghiệp vụ và demo**: Tích hợp thanh toán sandbox; cấu hình DB và SMTP để kiểm thử OTP, đăng nhập, đăng bài và mua hàng từ giao diện. Hiện tại chỉ có `PCK_TEST`, chưa có giao dịch sandbox.
+- **P1: Khởi tạo DB**: `migrate.mjs` chưa nhận dạng được `CREATE TABLE` xuống dòng trong các file Identity, Commerce và Community. Sửa bộ nhận dạng và kiểm thử với bốn DB trống trước khi dùng script; hiện có hướng dẫn chạy SQL thủ công bên dưới.
+- **P1: Dữ liệu và giao diện**: Xem sau và Đã mua chỉ lấy 50 bài gần nhất. Thêm phân trang ở `community-handlers.mjs` và `commerce-server.mjs`; trả trạng thái lưu theo bài ở `public/concept/discover.js` để nút lưu không báo sai.
+- **P1: Bảo vệ xác thực**: `server.mjs` giới hạn đăng nhập, đăng ký, xác minh và gửi lại mã theo đường dẫn chung. Giới hạn thêm theo nguồn hoặc tài khoản để một người không chặn tất cả người khác. `identity-handlers.mjs` trả 429 khi email đang chờ xác minh gửi lại quá sớm, nhưng trả 200 cho email không tồn tại hoặc đã kích hoạt; cần thống nhất phản hồi để tránh lộ trạng thái tài khoản.
+- **P2: Tiêu chí triển khai và giám sát**: Bổ sung Docker Compose, Prometheus và dashboard Grafana cho các service. Docker đang để làm sau theo kế hoạch hiện tại. Khi làm Compose, xử lý địa chỉ `127.0.0.1` giữa các container và chia sẻ `PCK_INTERNAL_TOKEN` giữa các service. Kiểm thử ngrok khi có môi trường chạy.
 - **P2: Độ ổn định**: Phiên đăng nhập mất khi khởi động lại; tệp upload lưu trên máy Content; một tiến trình dừng sẽ làm launcher dừng toàn bộ hệ thống. Cần cân nhắc lưu phiên và tệp bền vững, cùng cơ chế phục hồi service.
 - **P2: Kiểm thử giao diện**: Kiểm tra luồng thực tế, màn hình nhỏ, trạng thái tải và lỗi của từng chức năng. Chưa có kết quả kiểm thử trình duyệt với DB và SMTP thật.
 - **P3: Dọn giao diện cũ**: `public/concept/index.html` là giao diện chính, `public/index.html` kiểm tra DB; `public/demo.html` là trang demo cũ không được khai báo route. Xác nhận còn cần trước khi xóa.
 
-## Cách chạy
+### Bàn giao kiểm thử
 
-1. Cài Node.js 22 trở lên. Mở terminal trong thư mục repo và chạy `npm install`.
-2. Nếu chưa có `.env`, chạy `Copy-Item .env.example .env` trong PowerShell. Điền bốn kết nối Neon nhóm cấp vào `IDENTITY_DATABASE_URL`, `CONTENT_DATABASE_URL`, `COMMERCE_DATABASE_URL`, `COMMUNITY_DATABASE_URL`. Giữ `.env` ngoài Git.
-3. Nếu dùng DB trống riêng, chạy `node --env-file=.env migrate.mjs --apply`, rồi `node --env-file=.env migrate-gallery.mjs`. Nếu dùng branch cũ thiếu bảng kiểm duyệt, áp dụng [migration kiểm duyệt](migrations/07_content_moderation.sql) trên Content DB.
-4. Tạo tài khoản trên màn chào. Nếu cần tài khoản admin demo trên DB riêng, chạy `node --env-file=.env seed-demo.mjs` rồi lấy thông tin ở `.pck-demo/accounts.json`.
-5. Chạy `npm start`. Mở [PCK](http://127.0.0.1:3100/demo) hoặc [Kiểm tra kết nối DB](http://127.0.0.1:3100/db-check). Dừng bằng Ctrl+C. Nếu cần đổi cổng, dùng `PORT` cho web hoặc `COMMERCE_PORT`, `CONTENT_PORT`, `IDENTITY_PORT`, `COMMUNITY_PORT` cho từng service.
+- Lần audit gần nhất: `node --test test/*.test.mjs` đạt 8/8; `node --check` đạt 31 tệp JavaScript. Test hiện tại dùng mock, chưa chứng minh tích hợp thật.
+- Máy audit chưa có `.env`; không tìm thấy FFmpeg trong PATH. Cần cấu hình bốn DB, SMTP, `PCK_OTP_SECRET` và FFmpeg trước khi chạy các luồng cần chúng. Có thể đặt `PCK_FFMPEG_PATH` nếu FFmpeg nằm ngoài PATH.
+- Dùng hai tài khoản để thử đăng ký, OTP sai/hết hạn/gửi lại, đăng bài có ảnh và video Premium, xem preview, mua thử và tải. Kiểm tra cả tài khoản chưa mua và khách không tải được tệp Premium.
+- Thử mất kết nối SMTP hoặc service, thiếu tệp Premium, phản hồi mua bị gián đoạn, hơn 50 bài đã lưu hoặc đã mua, cùng giao diện trên màn hình nhỏ. Ghi lại kết quả thực tế và lỗi trước khi demo.
+
+## Cài đặt và chạy
+
+Các lệnh dưới đây dùng PowerShell tại thư mục dự án.
+
+1. Cài Node.js 22 trở lên, kiểm tra `node --version` và `npm --version`, sau đó cài dependencies:
+
+   ```powershell
+   npm install
+   Copy-Item .env.example .env
+   ```
+
+   Nếu đã có `.env`, giữ file hiện tại và bỏ qua lệnh sao chép.
+
+2. Mở `.env`, điền bốn connection string PostgreSQL vào `IDENTITY_DATABASE_URL`, `CONTENT_DATABASE_URL`, `COMMERCE_DATABASE_URL`, `COMMUNITY_DATABASE_URL`. Mỗi service cần một DB riêng; giữ nguyên tùy chọn TLS trong connection string. Điền thêm SMTP và `PCK_OTP_SECRET` theo phần xác minh email bên dưới. Không đưa `.env` lên Git.
+
+3. Với bốn DB trống riêng, dùng SQL Editor của từng DB để chạy đúng file tương ứng: [Identity](migrations/01_identity.sql), [Content](migrations/02_content.sql), [Commerce](migrations/03_commerce.sql), [Community](migrations/04_community.sql). Sau đó chạy lệnh sau để thêm cấu hình gallery cho Content:
+
+   ```powershell
+   node --env-file=.env migrate-gallery.mjs
+   ```
+
+   `migrate.mjs` hiện có lỗi nhận dạng SQL như ghi ở phần việc cần làm. Không chạy lại các file tạo bảng trên DB đã có dữ liệu. Với DB cũ, kiểm tra schema và chỉ áp dụng migration còn thiếu, gồm [kiểm duyệt](migrations/07_content_moderation.sql) và [preview](migrations/08_content_preview.sql) nếu cần.
+
+4. Cài FFmpeg nếu cần tạo preview Premium, theo phần bên dưới. Nếu cần tài khoản admin demo trên DB riêng, chạy `node --env-file=.env seed-demo.mjs` rồi lấy thông tin tại `.pck-demo/accounts.json`.
+
+5. Chạy `npm start`. Mở [PCK](http://127.0.0.1:3100/demo) hoặc [Kiểm tra kết nối DB](http://127.0.0.1:3100/db-check). Tạo tài khoản và xác minh email để đăng nhập. Dừng bằng Ctrl+C. Nếu cần đổi cổng, dùng `PORT` cho web hoặc `COMMERCE_PORT`, `CONTENT_PORT`, `IDENTITY_PORT`, `COMMUNITY_PORT` cho từng service.
+
+Chạy test tự động bằng `node --test test/*.test.mjs`. Test dùng mock; cần kiểm thử thêm với DB và SMTP thật.
 
 ### Xác minh email
 
@@ -42,6 +71,8 @@ Mã gồm 6 chữ số, hết hạn sau 10 phút và bị khóa sau 5 lần nh�
 ### Preview Premium
 
 Với Content DB đã có dữ liệu, chạy `08_content_preview.sql` trong thư mục `migrations/` trên Neon Content. DB tạo mới từ SQL khởi tạo đã có cột này. Cài FFmpeg hỗ trợ `drawtext` và `libx264` trên máy chạy Content, rồi đưa FFmpeg vào PATH hoặc đặt `PCK_FFMPEG_PATH` bằng đường dẫn tuyệt đối tới executable. Mặc định dùng Arial trong thư mục Fonts của Windows hoặc DejaVu Sans trên Linux. Nếu cần đổi font, đặt `PCK_PREVIEW_FONT_DIR` (thư mục tuyệt đối) và `PCK_PREVIEW_FONT_FILE` (tên file font).
+
+Sau khi cài, mở terminal mới và kiểm tra `ffmpeg -version`, `ffmpeg -filters` để tìm `drawtext`, và `ffmpeg -encoders` để tìm `libx264`. Nếu đặt `PCK_FFMPEG_PATH` thay cho PATH, gọi executable tại đường dẫn đó để kiểm tra.
 
 Khi lưu nháp, Content tạo ảnh preview tối đa 640 px hoặc video không tiếng tối đa 480 px và 10 giây, có watermark PCK. Chọn giây bắt đầu riêng cho mỗi video Premium. Bài đã đăng từ trước giữ thẻ khóa nếu chưa có preview.
 
