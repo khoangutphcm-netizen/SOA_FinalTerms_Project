@@ -157,6 +157,17 @@ async function detail(id, caller) {
   };
 }
 
+async function withPostAuthors(posts) {
+  const ids = [...new Set(posts.map(post => post.author_id).filter(Boolean))];
+  if (!ids.length) return posts;
+  const names = await callService("IDENTITY", "names", { ids }, { timeoutMs: 3500 }).catch(() => []);
+  const profiles = new Map(names.map(profile => [profile.id, profile]));
+  return posts.map(post => {
+    const profile = profiles.get(post.author_id);
+    return profile ? { ...post, author: profile.display_name, authorAvatarVersion: profile.avatar_updated_at } : post;
+  });
+}
+
 async function library(kind, caller) {
   const purchased = kind === "purchases";
   const rows =
@@ -181,7 +192,7 @@ async function library(kind, caller) {
         status: "HIDDEN",
         unavailable: true,
   });
-  if (!purchased) return rows.map((row) => byId.get(row.post_id) || fallback(row));
+  if (!purchased) return withPostAuthors(rows.map((row) => byId.get(row.post_id) || fallback(row)));
   return rows.map((row) => {
     const { premium_available: files = [], ...post } = byId.get(row.post_id) || fallback(row);
     const canOpen = post.moderation_state !== "TAKEN_DOWN" &&
@@ -376,9 +387,12 @@ export async function handleCatalog(req, res, path, send, caller, readJson) {
   };
   try {
     if (path === "/api/demo/catalog" && req.method === "GET")
-      return send(res, 200, { posts: await catalog(search) });
-    if (group && req.method === "GET" && (!group[2] || uuid.test(group[2])))
-      return send(res, 200, await groups(group[1], group[2], caller));
+      return send(res, 200, { posts: await withPostAuthors(await catalog(search)) });
+    if (group && req.method === "GET" && (!group[2] || uuid.test(group[2]))) {
+      const result = await groups(group[1], group[2], caller);
+      if (group[2]) result.posts = await withPostAuthors(result.posts);
+      return send(res, 200, result);
+    }
     if (path === "/api/demo/my-collections" && req.method === "GET") {
       requireUser();
       const postId = search.get("postId");

@@ -22,26 +22,34 @@ export async function groups(kind, groupId, caller) {
   const [table, items, fk, visibility] = groupKinds[kind];
   const collectionCover =
     kind === "collections"
-      ? `, (
-    SELECT a.id FROM public.collection_items ci
+      ? `, ARRAY(
+    SELECT cover.id FROM public.collection_items ci
     JOIN public.posts cp ON cp.id=ci.post_id AND cp.status='PUBLISHED'
-    JOIN public.assets a ON a.post_id=cp.id AND a.status='READY'
-    JOIN public.asset_formats f ON f.id=a.format_id AND f.kind='IMAGE'
-    WHERE ci.collection_id=g.id AND (cp.price_vnd=0 OR a.purpose='PROMO')
-      AND ${originalExists}
-    ORDER BY ci.position,a.position LIMIT 1
-  ) AS cover_id`
+    JOIN LATERAL (
+      SELECT a.id FROM public.assets a
+      JOIN public.asset_formats f ON f.id=a.format_id AND f.kind IN ('IMAGE','VIDEO')
+      WHERE a.post_id=cp.id AND a.status='READY' AND (cp.price_vnd=0 OR a.purpose='PROMO')
+        AND ${originalExists}
+      ORDER BY a.position LIMIT 1
+    ) cover ON true
+    WHERE ci.collection_id=g.id
+    ORDER BY ci.position LIMIT 3
+  ) AS cover_ids`
       : "";
   const groupOrder =
     kind === "collections" ? "g.created_at DESC,g.id" : "g.title,g.id";
-  if (!groupId)
-    return query(
+  if (!groupId) {
+    const rows = await query(
       "CONTENT",
       `SELECT g.id,g.title,g.description,count(p.id)::int AS total${collectionCover}
     FROM public.${table} g LEFT JOIN public.${items} i ON i.${fk}=g.id
     LEFT JOIN public.posts p ON p.id=i.post_id AND p.status='PUBLISHED' WHERE ${visibility}
     GROUP BY g.id ORDER BY ${groupOrder} LIMIT 50`,
     );
+    return kind === "collections"
+      ? rows.map(group => ({ ...group, cover_id: group.cover_ids[0] ?? null }))
+      : rows;
+  }
   return withDb("CONTENT", async (client) => {
     const {
       rows: [group],
