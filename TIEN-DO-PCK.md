@@ -8,7 +8,7 @@ Cập nhật ngày 21/11/2026. PCK là đồ án SOA chia sẻ và mua ảnh, vi
 | --- | --- | --- |
 | Phân tích và thiết kế | Có đặc tả, Use Case, ERD, SQL và sơ đồ kiến trúc. | Đồng bộ tài liệu với OTP, ví, Stripe, lưu media và kiểm duyệt. |
 | Microservices | Có gateway và bốn service giao tiếp qua HTTP. | Kiểm tra lại sơ đồ và chuẩn bị bằng chứng service phối hợp khi demo. |
-| Chức năng và nghiệp vụ | Có đăng ký OTP, bài nhiều tệp, preview, Xem sau, Đã mua, bộ sưu tập và quản trị cơ bản. Có ví demo và Stripe Checkout test để nạp ví. | Kiểm thử trọn luồng bằng hai tài khoản, gồm nạp ví, mua và tải. Stripe Checkout hiện không phải tích hợp QR riêng. |
+| Chức năng và nghiệp vụ | Có đăng ký OTP, bài nhiều tệp, preview, Xem sau, Đã mua, bộ sưu tập và quản trị cơ bản. Có ví demo và Stripe Checkout test để nạp ví. | Kiểm thử trọn luồng bằng hai tài khoản, gồm nạp ví, mua và tải. |
 | Giao tiếp và tích hợp | Có REST API, SMTP và Stripe webhook xác thực chữ ký. Ví xử lý lặp webhook theo mã yêu cầu. | Thử callback thất bại, gửi lại và mất kết nối service; ghi kết quả. |
 | Dữ liệu và bảo mật | Có DB riêng, phân quyền admin và kiểm tra quyền tải. Media và preview lưu trong Content DB. | Phiên hiện lưu RAM. Cải thiện giới hạn xác thực và kiểm tra quyền truy cập trực tiếp tới media. |
 | Đóng gói và triển khai | Có `npm start` và hướng dẫn ngrok. | Bổ sung Docker Compose và thử truy cập qua Internet. Theo rubric, thiếu Docker Compose giới hạn tối đa 7,5 điểm. |

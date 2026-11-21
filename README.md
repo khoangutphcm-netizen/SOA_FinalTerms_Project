@@ -17,7 +17,7 @@ Content gọi các service khác qua HTTP nội bộ. Người dùng đăng ký 
 
 ## Việc cần làm theo ưu tiên
 
-- **P1: Nghiệp vụ và demo**: Kiểm thử Stripe Checkout sandbox từ giao diện đến webhook và ví, cùng các luồng OTP, đăng nhập, đăng bài, mua và tải. Phương thức thanh toán phụ thuộc cấu hình tài khoản Stripe; chưa tích hợp QR riêng.
+- **P1: Nghiệp vụ và demo**: Kiểm thử Stripe Checkout sandbox từ giao diện đến webhook và ví, cùng các luồng OTP, đăng nhập, đăng bài, mua và tải. Phương thức thanh toán phụ thuộc cấu hình tài khoản Stripe.
 - **P1: Khởi tạo DB**: `migrate.mjs` chưa nhận dạng được `CREATE TABLE` xuống dòng trong các file Identity, Commerce và Community. Sửa bộ nhận dạng và kiểm thử với bốn DB trống trước khi dùng script; hiện có hướng dẫn chạy SQL thủ công bên dưới.
 - **P1: Dữ liệu và giao diện**: Xem sau lấy 50 bài gần nhất. Đã mua hiển thị toàn bộ quyền mua. Bổ sung phân trang khi thư viện có nhiều tác phẩm.
 - **P1: Bảo vệ xác thực**: `server.mjs` giới hạn đăng nhập, đăng ký, xác minh và gửi lại mã theo đường dẫn chung. Giới hạn thêm theo nguồn hoặc tài khoản để một người không chặn tất cả người khác. `identity-handlers.mjs` trả 429 khi email đang chờ xác minh gửi lại quá sớm, nhưng trả 200 cho email không tồn tại hoặc đã kích hoạt; cần thống nhất phản hồi để tránh lộ trạng thái tài khoản.
