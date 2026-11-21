@@ -21,7 +21,7 @@ Content gọi các service khác qua HTTP nội bộ. Người dùng đăng ký 
 - **P1: Khởi tạo DB**: `migrate.mjs` chưa nhận dạng được `CREATE TABLE` xuống dòng trong các file Identity, Commerce và Community. Sửa bộ nhận dạng và kiểm thử với bốn DB trống trước khi dùng script; hiện có hướng dẫn chạy SQL thủ công bên dưới.
 - **P1: Dữ liệu và giao diện**: Xem sau lấy 50 bài gần nhất. Đã mua hiển thị toàn bộ quyền mua. Bổ sung phân trang khi thư viện có nhiều tác phẩm.
 - **P1: Bảo vệ xác thực**: `server.mjs` giới hạn đăng nhập, đăng ký, xác minh và gửi lại mã theo đường dẫn chung. Giới hạn thêm theo nguồn hoặc tài khoản để một người không chặn tất cả người khác. `identity-handlers.mjs` trả 429 khi email đang chờ xác minh gửi lại quá sớm, nhưng trả 200 cho email không tồn tại hoặc đã kích hoạt; cần thống nhất phản hồi để tránh lộ trạng thái tài khoản.
-- **P2: Tiêu chí triển khai và giám sát**: Bổ sung Docker Compose, Prometheus và dashboard Grafana cho các service. Docker đang để làm sau theo kế hoạch hiện tại. Khi làm Compose, xử lý địa chỉ `127.0.0.1` giữa các container và chia sẻ `PCK_INTERNAL_TOKEN` giữa các service. Kiểm thử ngrok khi có môi trường chạy.
+- **P2: Giám sát**: Bổ sung Prometheus và dashboard Grafana cho các service. Có hai chế độ chạy riêng bằng Docker Compose hoặc ngrok.
 - **P2: Độ ổn định**: Phiên đăng nhập mất khi khởi động lại. Một tiến trình dừng sẽ làm launcher dừng toàn bộ hệ thống. Cần cân nhắc lưu phiên bền vững và cơ chế phục hồi service.
 - **P2: Kiểm thử giao diện**: Kiểm tra luồng thực tế, màn hình nhỏ, trạng thái tải và lỗi của từng chức năng. Chưa có kết quả kiểm thử trình duyệt với DB và SMTP thật.
 - **P3: Dọn giao diện cũ**: `public/concept/index.html` là giao diện chính, `public/index.html` kiểm tra DB; `public/demo.html` là trang demo cũ không được khai báo route. Xác nhận còn cần trước khi xóa.
@@ -106,6 +106,17 @@ Sau khi cài, mở terminal mới và kiểm tra `ffmpeg -version`, `ffmpeg -fil
 
 Khi lưu nháp, Content tạo ảnh preview tối đa 640 px hoặc video không tiếng tối đa 480 px và 10 giây, có watermark PCK. Chọn giây bắt đầu riêng cho mỗi video Premium. Bài đã đăng từ trước giữ thẻ khóa nếu chưa có preview.
 
-### Chia sẻ bản chạy qua Internet
+### Chạy bằng Docker Compose hoặc ngrok
 
-Trên máy chạy PCK, đặt `PCK_SECURE_COOKIE=1` trong `.env` nếu dùng HTTPS qua tunnel, rồi chạy `npm start`. Trong terminal khác, cấu hình token ngrok bằng `ngrok config add-authtoken <TOKEN>` một lần, rồi chạy `ngrok http 3100`. Mở URL HTTPS ngrok trả về. Giữ máy và cả hai terminal hoạt động trong thời gian demo. Khi quay lại chạy HTTP local, bỏ cấu hình `PCK_SECURE_COOKIE=1` nếu trình duyệt không lưu cookie.
+Chạy một trong hai chế độ từ thư mục dự án. Cả hai dùng bốn kết nối Neon trong `.env`, nên có cùng dữ liệu. Nếu cổng 3100 đang được dùng, dừng phiên PCK cũ trước. Đặt `PORT` trong `.env` nếu muốn dùng cổng khác.
+
+| Chế độ | Chạy bằng một lệnh | Mở trang |
+| --- | --- | --- |
+| Docker Desktop đang chạy | `docker compose up --build --menu=false` | `http://127.0.0.1:3100` |
+| Node.js, dependencies và ngrok đã cài | `npm run ngrok` | URL HTTPS in sau dòng `PCK ngrok` |
+
+**Dừng bằng Ctrl+C** trong terminal đã chạy lệnh. Compose chạy Gateway và bốn service trong các container riêng, kèm FFmpeg và font. Máy chỉ cần Docker Desktop để dùng chế độ này. Chế độ ngrok khởi chạy PCK bằng Node cùng tunnel trong một terminal, tự dùng URL HTTPS cho cookie và URL quay về từ Stripe.
+
+Ngrok cần authtoken một lần. Chạy `ngrok config add-authtoken <TOKEN>` hoặc điền `NGROK_AUTHTOKEN` trong `.env`. Launcher dùng Agent API của ngrok tại `127.0.0.1:4040` để lấy URL. Nếu bạn đã đổi cổng Agent API, đặt `PCK_NGROK_API_PORT` bằng cổng đó.
+
+Khi test Stripe trên Docker local, dùng Stripe CLI như hướng dẫn trên. Với bản ngrok, có thể đăng ký `https://<tên-miền-ngrok>/api/stripe/webhook` trong Stripe Sandbox và đặt signing secret của endpoint đó vào `.env` trước khi khởi động PCK.

@@ -11,7 +11,7 @@ Cập nhật ngày 21/11/2026. PCK là đồ án SOA chia sẻ và mua ảnh, vi
 | Chức năng và nghiệp vụ | Có đăng ký OTP, bài nhiều tệp, preview, Xem sau, Đã mua, bộ sưu tập và quản trị cơ bản. Có ví demo và Stripe Checkout test để nạp ví. | Kiểm thử trọn luồng bằng hai tài khoản, gồm nạp ví, mua và tải. |
 | Giao tiếp và tích hợp | Có REST API, SMTP và Stripe webhook xác thực chữ ký. Ví xử lý lặp webhook theo mã yêu cầu. | Thử callback thất bại, gửi lại và mất kết nối service; ghi kết quả. |
 | Dữ liệu và bảo mật | Có DB riêng, phân quyền admin và kiểm tra quyền tải. Media và preview lưu trong Content DB. | Phiên hiện lưu RAM. Cải thiện giới hạn xác thực và kiểm tra quyền truy cập trực tiếp tới media. |
-| Đóng gói và triển khai | Có `npm start` và hướng dẫn ngrok. | Bổ sung Docker Compose và thử truy cập qua Internet. Theo rubric, thiếu Docker Compose giới hạn tối đa 7,5 điểm. |
+| Đóng gói và triển khai | Docker Compose chạy Gateway và bốn service. Đã kiểm tra bốn kết nối Neon, truy cập HTTPS qua ngrok và dừng bằng Ctrl+C. | Lưu bằng chứng chạy để trình bày theo rubric. |
 | Giám sát | Có trang kiểm tra kết nối DB. | Tích hợp Prometheus và Grafana. Theo rubric, thiếu cả hai giới hạn tối đa 8,0 điểm. |
 | Kiểm thử và chất lượng mã | Có test OTP, quyền truy cập, giao diện mua và Stripe webhook. | Bổ sung bằng chứng kiểm thử trên trình duyệt, DB và các ca lỗi thực tế. |
 | Báo cáo, demo và hỏi đáp | Có README và tài liệu nền. | Cập nhật báo cáo, chuẩn bị kịch bản demo và giải thích kiến trúc. |
@@ -29,7 +29,7 @@ Cập nhật ngày 21/11/2026. PCK là đồ án SOA chia sẻ và mua ảnh, vi
 2. Chạy và ghi kết quả luồng OTP, đăng bài, nạp ví Stripe test, mua và tải bằng hai tài khoản. Kiểm tra cả quyền tải của khách và người chưa mua.
 3. Giới hạn xác thực theo nguồn hoặc tài khoản; thống nhất phản hồi gửi lại OTP để tránh lộ trạng thái tài khoản.
 4. Cải thiện Xem sau khi có hơn 50 bài và phân trang thư viện. Kiểm tra giao diện trên màn hình nhỏ và khi mất kết nối.
-5. Bổ sung Docker Compose, Prometheus và Grafana; kiểm tra ngrok khi có môi trường triển khai.
+5. Bổ sung Prometheus và Grafana.
 6. Đồng bộ Use Case, ERD, sơ đồ service và báo cáo với bản thực tế.
 
 ## Lưu ý cho demo

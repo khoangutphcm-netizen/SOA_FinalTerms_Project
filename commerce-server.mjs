@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { bindHost, servicePort } from "./service-network.mjs";
 import { connect } from "./demo-accounts.mjs";
 import { changeWallet, debitWallet, topUpLimits, topUpAmountMessage, validTopUpAmount, topUpWallet, walletSummary } from "./commerce-wallet.mjs";
 import { createCheckout, handleStripeWebhook } from "./commerce-stripe.mjs";
@@ -243,7 +244,7 @@ const server = createServer(async (req, res) => {
   }
 });
 
-const port = Number(process.env.COMMERCE_PORT || 3101);
-server.listen(port, "127.0.0.1", () =>
-  console.log("PCK Commerce: http://127.0.0.1:" + port),
+const port = servicePort("COMMERCE");
+server.listen(port, bindHost, () =>
+  console.log("PCK Commerce: " + port),
 );

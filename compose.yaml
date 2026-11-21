@@ -1,0 +1,91 @@
+name: pck
+
+x-app: &app
+  image: pck-app:local
+  pull_policy: never
+  init: true
+  volumes:
+    - internal-token:/run/pck:ro
+  depends_on:
+    bootstrap:
+      condition: service_completed_successfully
+
+x-network: &network
+  PCK_BIND_HOST: 0.0.0.0
+  CONTENT_HOST: content
+  COMMERCE_HOST: commerce
+  IDENTITY_HOST: identity
+  COMMUNITY_HOST: community
+
+services:
+  bootstrap:
+    image: pck-app:local
+    build: .
+    pull_policy: build
+    user: "0"
+    entrypoint: [node, docker-token.mjs]
+    command: [--create]
+    volumes:
+      - internal-token:/run/pck
+
+  identity:
+    <<: *app
+    command: [data-server.mjs, IDENTITY]
+    environment:
+      <<: *network
+      IDENTITY_DATABASE_URL: ${IDENTITY_DATABASE_URL:?Set IDENTITY_DATABASE_URL in .env}
+      PCK_OTP_SECRET: ${PCK_OTP_SECRET:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-0}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+
+  content:
+    <<: *app
+    command: [content-server.mjs]
+    environment:
+      <<: *network
+      CONTENT_DATABASE_URL: ${CONTENT_DATABASE_URL:?Set CONTENT_DATABASE_URL in .env}
+      PCK_SECURE_COOKIE: "0"
+
+  commerce:
+    <<: *app
+    command: [commerce-server.mjs]
+    environment:
+      <<: *network
+      COMMERCE_DATABASE_URL: ${COMMERCE_DATABASE_URL:?Set COMMERCE_DATABASE_URL in .env}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      PCK_PUBLIC_URL: http://127.0.0.1:${PORT:-3100}
+
+  community:
+    <<: *app
+    command: [data-server.mjs, COMMUNITY]
+    environment:
+      <<: *network
+      COMMUNITY_DATABASE_URL: ${COMMUNITY_DATABASE_URL:?Set COMMUNITY_DATABASE_URL in .env}
+
+  web:
+    <<: *app
+    command: [server.mjs]
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      identity:
+        condition: service_started
+      content:
+        condition: service_started
+      commerce:
+        condition: service_started
+      community:
+        condition: service_started
+    environment:
+      <<: *network
+      PORT: "3100"
+    ports:
+      - "127.0.0.1:${PORT:-3100}:3100"
+
+volumes:
+  internal-token:

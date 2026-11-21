@@ -1,0 +1,7 @@
+.git
+.env
+.env.*
+node_modules
+.pck-demo
+.npm-cache
+db_connection_string.txt

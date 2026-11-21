@@ -1,7 +1,8 @@
 import { createServer, request } from "node:http";
 import { readFile, readdir } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
-import { callService, servicePort } from "./internal-services.mjs";
+import { callService } from "./internal-services.mjs";
+import { bindHost, serviceHost, servicePort } from "./service-network.mjs";
 import { commerce } from "./commerce-client.mjs";
 
 const services = Object.freeze({
@@ -128,7 +129,7 @@ function proxyContent(req, res) {
   headers.authorization = "Bearer " + process.env.PCK_INTERNAL_TOKEN;
   const upstream = request(
     {
-      hostname: "127.0.0.1",
+      hostname: serviceHost("CONTENT"),
       port: servicePort("CONTENT"),
       path: req.url,
       method: req.method,
@@ -161,7 +162,7 @@ function proxyContent(req, res) {
 
 function proxyStripeWebhook(req, res) {
   const upstream = request({
-    hostname: "127.0.0.1", port: servicePort("COMMERCE"), path: "/stripe/webhook", method: "POST",
+    hostname: serviceHost("COMMERCE"), port: servicePort("COMMERCE"), path: "/stripe/webhook", method: "POST",
     headers: { authorization: "Bearer " + process.env.PCK_INTERNAL_TOKEN,
       "content-type": req.headers["content-type"] || "application/json",
       "stripe-signature": req.headers["stripe-signature"] || "" },
@@ -257,6 +258,6 @@ const server = createServer(async (req, res) => {
   send(res, 404, { message: "Không tìm thấy đường dẫn." });
 });
 const port = Number(process.env.PORT || 3100);
-server.listen(port, "127.0.0.1", () => {
+server.listen(port, bindHost, () => {
   console.log("PCK DB Check: http://127.0.0.1:" + server.address().port);
 });

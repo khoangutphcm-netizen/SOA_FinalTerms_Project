@@ -4,17 +4,10 @@ import { identity } from "./identity-handlers.mjs";
 import { community } from "./community-handlers.mjs";
 import { profileHandlers } from "./identity-profile.mjs";
 import { accountAdmin } from "./identity-admin.mjs";
+import { bindHost, serviceHost, servicePort } from "./service-network.mjs";
 
 export { identity } from "./identity-handlers.mjs";
-
-export function servicePort(service) {
-  return Number(
-    process.env[service + "_PORT"] ||
-      { COMMERCE: 3101, CONTENT: 3102, IDENTITY: 3103, COMMUNITY: 3104 }[
-        service
-      ],
-  );
-}
+export { servicePort } from "./service-network.mjs";
 
 export async function callService(
   service,
@@ -26,7 +19,7 @@ export async function callService(
   let data;
   try {
     response = await fetch(
-      "http://127.0.0.1:" + servicePort(service) + "/" + operation,
+      `http://${serviceHost(service)}:${servicePort(service)}/${operation}`,
       {
         method: "POST",
         headers: {
@@ -99,7 +92,7 @@ export function startDataService(service) {
     } finally {
       await client?.end().catch(() => {});
     }
-  }).listen(servicePort(service), "127.0.0.1", () =>
+  }).listen(servicePort(service), bindHost, () =>
     console.log("PCK " + service + ": " + servicePort(service)),
   );
 }

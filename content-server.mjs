@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { handleDemo } from "./demo-upload.mjs";
 import { query } from "./demo-catalog.mjs";
-import { servicePort } from "./internal-services.mjs";
+import { bindHost, servicePort } from "./service-network.mjs";
 
 const token = process.env.PCK_INTERNAL_TOKEN;
 if (!token) throw new Error("PCK_INTERNAL_TOKEN is required");
@@ -34,6 +34,6 @@ createServer(async (req, res) => {
     if (res.headersSent) return res.destroy();
     send(res, 503, { message: "Content tạm thời không khả dụng." });
   }
-}).listen(servicePort("CONTENT"), "127.0.0.1", () =>
+}).listen(servicePort("CONTENT"), bindHost, () =>
   console.log("PCK Content: " + servicePort("CONTENT")),
 );

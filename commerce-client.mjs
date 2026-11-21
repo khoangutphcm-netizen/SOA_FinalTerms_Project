@@ -1,9 +1,11 @@
+import { serviceHost, servicePort } from "./service-network.mjs";
+
 export async function commerce(path, body, { timeoutMs = 12000 } = {}) {
   let response;
   let data;
   try {
     response = await fetch(
-      new URL(path, "http://127.0.0.1:" + (process.env.COMMERCE_PORT || 3101)),
+      new URL(path, `http://${serviceHost("COMMERCE")}:${servicePort("COMMERCE")}`),
       {
         method: body === undefined ? "GET" : "POST",
         headers: {
