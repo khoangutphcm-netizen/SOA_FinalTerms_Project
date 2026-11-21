@@ -159,6 +159,27 @@ function proxyContent(req, res) {
   req.pipe(upstream);
 }
 
+function proxyStripeWebhook(req, res) {
+  const upstream = request({
+    hostname: "127.0.0.1", port: servicePort("COMMERCE"), path: "/stripe/webhook", method: "POST",
+    headers: { authorization: "Bearer " + process.env.PCK_INTERNAL_TOKEN,
+      "content-type": req.headers["content-type"] || "application/json",
+      "stripe-signature": req.headers["stripe-signature"] || "" },
+  }, (response) => {
+    response.on("error", () => res.destroy());
+    res.writeHead(response.statusCode, response.headers);
+    response.pipe(res);
+  });
+  upstream.setTimeout(30000, () => upstream.destroy());
+  upstream.on("error", () => {
+    req.unpipe(upstream);
+    req.resume();
+    if (res.headersSent) return res.destroy();
+    if (!res.destroyed) send(res, 503, { message: "Commerce đang không phản hồi." });
+  });
+  req.pipe(upstream);
+}
+
 function send(res, status, body, type = "application/json; charset=utf-8") {
   res.writeHead(status, {
     "Content-Type": type,
@@ -172,6 +193,10 @@ function send(res, status, body, type = "application/json; charset=utf-8") {
 
 const server = createServer(async (req, res) => {
   const path = (req.url || "/").split("?")[0];
+  if (path === "/api/stripe/webhook") {
+    if (req.method !== "POST") return send(res, 405, { message: "Dùng POST." });
+    return proxyStripeWebhook(req, res);
+  }
   if (
     req.method === "GET" &&
     (path === "/assets/hero/banner" ||

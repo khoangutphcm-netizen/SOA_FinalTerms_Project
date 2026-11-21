@@ -25,7 +25,22 @@ async function sendOtp(query, challenge) {
   if (!challenge) return;
   const {id,email,code} = challenge;
   const transport = nodemailer.createTransport({host:process.env.SMTP_HOST, port:Number(process.env.SMTP_PORT || 587), secure:process.env.SMTP_SECURE === '1', requireTLS:true, auth:{user:process.env.SMTP_USER,pass:process.env.SMTP_PASSWORD}, connectionTimeout:10000, greetingTimeout:10000, socketTimeout:10000});
-  try { await transport.sendMail({from:process.env.SMTP_FROM,to:email,subject:'Mã xác minh PCK',text:`Mã xác minh PCK của bạn là ${code}. Mã có hiệu lực trong 10 phút.`}); }
+  try { await transport.sendMail({
+    from:process.env.SMTP_FROM,
+    to:email,
+    subject:'Mã xác minh PCK',
+    text:`Mã xác minh PCK của bạn là ${code}. Mã có hiệu lực trong 10 phút. Nếu bạn không yêu cầu mã này, hãy bỏ qua email.`,
+    html:`<!doctype html><html lang="vi"><body style="margin:0;padding:24px 12px;background:#f7f7f4;color:#20211e;font-family:Arial,sans-serif">
+      <table role="presentation" style="width:100%;max-width:520px;margin:0 auto;border-collapse:collapse"><tr><td>
+      <p style="margin:0 0 24px;font-size:28px;font-weight:900;letter-spacing:-2px">PCK<span style="color:#879a13">.</span></p>
+      <div style="padding:32px;background:#fff;border:1px solid #e3e5df;border-radius:20px">
+      <h1 style="margin:0 0 16px;font-size:24px;line-height:1.3">Xác minh email</h1>
+      <p style="margin:0 0 20px;font-size:15px;line-height:1.6">Nhập mã dưới đây để hoàn tất đăng ký tài khoản PCK.</p>
+      <p style="margin:0 0 20px;padding:18px;text-align:center;background:#e8ff65;border-radius:12px;font-size:32px;font-weight:700;letter-spacing:8px">${code}</p>
+      <p style="margin:0;font-size:14px;line-height:1.6;color:#555850">Mã có hiệu lực trong 10 phút. Không chia sẻ mã với người khác.</p>
+      </div><p style="margin:20px 0 0;font-size:13px;line-height:1.6;color:#747770">Nếu bạn không yêu cầu mã này, hãy bỏ qua email.</p>
+      </td></tr></table></body></html>`
+  }); }
   catch {
     await query("DELETE FROM public.verification_challenges WHERE id=$1 AND consumed_at IS NULL", [id]);
     throw otpError('Không gửi được email xác minh. Hãy dùng chức năng gửi lại mã.', 503);

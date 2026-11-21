@@ -15,11 +15,14 @@ export function createUploadTools(uploadState, esc) {
   const maxPreviewStart = (seconds) =>
     hasDuration(seconds) ? Math.min(86400, Math.ceil(seconds) - 1) : 86400;
   const videoTime = (seconds) =>
-    Math.floor(seconds / 60) + ":" + String(Math.floor(seconds % 60)).padStart(2, "0");
+    Math.floor(seconds / 60) +
+    ":" +
+    String(Math.floor(seconds % 60)).padStart(2, "0");
 
   function rememberUploadTime(video) {
     const entry = uploadState.files[Number(video.dataset.uploadVideo)];
-    if (entry && Number.isFinite(video.currentTime)) entry.playhead = video.currentTime;
+    if (entry && Number.isFinite(video.currentTime))
+      entry.playhead = video.currentTime;
   }
 
   function syncUploadVideo(video) {
@@ -28,11 +31,14 @@ export function createUploadTools(uploadState, esc) {
     entry.duration = video.duration;
     const card = video.closest(".upload-file");
     card.querySelector("[data-video-duration]").textContent =
-      video.duration < 1 ? "Dưới 1 giây" : "Thời lượng " + videoTime(video.duration);
+      video.duration < 1
+        ? "Dưới 1 giây"
+        : "Thời lượng " + videoTime(video.duration);
     const input = card.querySelector("[data-preview-start]");
     if (input) {
       input.max = maxPreviewStart(video.duration);
-      card.querySelector('[data-upload-action="preview-time"]').disabled = false;
+      card.querySelector('[data-upload-action="preview-time"]').disabled =
+        false;
     }
     if (entry.playhead > 0 && entry.playhead < video.duration) {
       video.currentTime = entry.playhead;
@@ -44,11 +50,16 @@ export function createUploadTools(uploadState, esc) {
     const video = card.querySelector("[data-upload-video]");
     const input = card.querySelector("[data-preview-start]");
     const entry = uploadState.files[Number(control.dataset.index)];
-    if (!entry?.premium || !video || !input || !hasDuration(video.duration)) return;
-    const second = Math.min(maxPreviewStart(video.duration), Math.floor(video.currentTime));
+    if (!entry?.premium || !video || !input || !hasDuration(video.duration))
+      return;
+    const second = Math.min(
+      maxPreviewStart(video.duration),
+      Math.floor(video.currentTime),
+    );
     input.value = String(second);
     entry.previewStart = second;
-    card.querySelector("[data-preview-feedback]").textContent = "Đã chọn mốc " + videoTime(second) + ".";
+    card.querySelector("[data-preview-feedback]").textContent =
+      "Đã chọn mốc " + videoTime(second) + ".";
   }
 
   function uploadPriceSummary(form) {

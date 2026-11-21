@@ -8,6 +8,7 @@ function processEnv(owner) {
     if (name !== owner) delete scoped[name + '_DATABASE_URL'];
   }
   if (owner !== 'IDENTITY') for (const name of ['PCK_OTP_SECRET','SMTP_HOST','SMTP_PORT','SMTP_SECURE','SMTP_USER','SMTP_PASSWORD','SMTP_FROM']) delete scoped[name];
+  if (owner !== 'COMMERCE') for (const name of ['STRIPE_SECRET_KEY','STRIPE_WEBHOOK_SECRET']) delete scoped[name];
   return scoped;
 }
 const programs = [

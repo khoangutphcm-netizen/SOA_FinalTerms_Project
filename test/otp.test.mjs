@@ -28,7 +28,13 @@ test('resend commits before SMTP and keeps the code out of storage', async () =>
   const events = [];
   const original = nodemailer.createTransport;
   nodemailer.createTransport = () => ({
-    async sendMail(message) { events.push('SEND'); assert.match(message.text,/\b\d{6}\b/); },
+    async sendMail(message) {
+      events.push('SEND');
+      const code = message.text.match(/\b\d{6}\b/)?.[0];
+      assert.ok(code);
+      assert.ok(message.html.includes(code));
+      assert.match(message.html,/10 phút/);
+    },
     close() {}
   });
   try {

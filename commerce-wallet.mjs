@@ -15,6 +15,10 @@ export async function walletSummary(client, userId, includeHistory) {
   return { balanceVnd: Number(wallet?.balance_vnd ?? 0), history: wallet?.history ?? [] };
 }
 
+export function topUpWallet(client, userId, amount, requestId) {
+  return changeWallet(client, userId, amount, requestId);
+}
+
 export async function changeWallet(client, userId, amount, requestId, { actorId = null, expectedBalance } = {}) {
   const kind = actorId ? (amount < 0 ? "ADMIN_DEBIT" : "ADMIN_CREDIT") : "TOP_UP";
   await client.query("BEGIN");
