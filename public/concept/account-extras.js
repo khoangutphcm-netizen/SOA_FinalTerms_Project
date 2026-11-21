@@ -69,6 +69,7 @@ export async function avatarPayload(file) {
 }
 
 export function walletPage(wallet, esc, returnPost, stripeStatus) {
+  const { min, max } = wallet.topUpLimits ?? { min: 20000, max: 1000000 };
   const ledger = wallet.history.map(entry => {
     const label = { TOP_UP: "Nạp thử", ADMIN_CREDIT: "Admin cộng tiền", ADMIN_DEBIT: "Admin giảm số dư", PURCHASE: "Mua tác phẩm" }[entry.kind];
     const credit = Number(entry.amount_vnd) > 0;
@@ -80,14 +81,13 @@ export function walletPage(wallet, esc, returnPost, stripeStatus) {
   return `<div class="surface wallet-panel">
     <div><h2>Số dư demo</h2><strong class="wallet-amount">${money(wallet.balanceVnd)}</strong>
       <p class="muted">Chỉ dùng để mua thử trên PCK.</p></div>
-    ${stripeStatus === "success" ? '<p role="status">Đã quay lại từ Stripe. Số dư sẽ cập nhật khi thanh toán được xác nhận; hãy tải lại nếu chưa thấy.</p>' : stripeStatus === "cancel" ? '<p role="status">Bạn đã hủy thanh toán Stripe.</p>' : ""}
     <form id="wallet-topup-form" class="wallet-topup">
-      <label>Mức nạp thử<select name="amount">${[50000, 100000, 200000]
-        .map((value) => `<option value="${value}">${money(value)}</option>`)
-        .join("")}</select></label>
+      <label>Số tiền nạp (₫)<input type="number" name="amount" inputmode="numeric" min="${min}" max="${max}" step="1" placeholder="Ví dụ 75000" required aria-describedby="wallet-topup-range">
+        <small id="wallet-topup-range" class="muted">${money(min)} – ${money(max)}</small></label>
       <div class="button-row"><button type="submit" name="provider" value="demo" class="btn light">Nạp thử</button>
       <button type="submit" name="provider" value="stripe" class="btn dark">Nạp qua Stripe test</button></div><p role="status" class="muted"></p>
     </form>
+    ${stripeStatus === "success" ? '<p class="wallet-stripe-status muted" role="status">Đã quay lại từ Stripe. Số dư cập nhật sau khi PCK nhận được xác nhận thanh toán. Hãy tải lại trang để kiểm tra.</p>' : stripeStatus === "cancel" ? '<p class="wallet-stripe-status muted" role="status">Bạn đã hủy thanh toán Stripe.</p>' : ""}
     ${returnPost ? `<a href="#post/${encodeURIComponent(returnPost)}">Quay lại tác phẩm</a>` : ""}
   </div><section class="surface wallet-history"><h2>Lịch sử giao dịch</h2>
     ${ledger ? `<ul>${ledger}</ul>` : '<p class="muted">Chưa có giao dịch số dư.</p>'}</section>`;

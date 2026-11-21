@@ -2001,22 +2001,32 @@ dialog .accent {
   position: relative;
   min-width: 0;
 }
-.card-has-author { --card-author-height: 32px; }
+.card-has-author {
+  position: relative;
+  --card-author-height: 25px;
+}
 .card-author {
+  position: absolute;
+  z-index: 2;
+  top: 8px;
+  left: 8px;
   display: flex;
   align-items: center;
   gap: 6px;
   height: var(--card-author-height);
-  padding-inline: 10px;
-  border-bottom: 1px solid var(--line);
-  color: var(--ink);
+  max-width: calc(100% - 16px);
+  padding-inline: 6px 8px;
+  border-radius: 5px;
+  background: rgba(21, 29, 24, .76);
+  backdrop-filter: blur(8px);
+  color: #fff;
   font-size: .75rem;
   font-weight: 650;
 }
 .card-author .user-avatar { width: 17px; font-size: .58rem; }
 .card-author > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.card-has-author > .card-quick-actions { top: calc(var(--card-author-height) + 10px); }
-.card-has-author > .video-card-toggle { top: calc(var(--card-author-height) + 12px); }
+.card-has-author > .card-quick-actions,
+.card-has-author > .video-card-toggle { top: calc(var(--card-author-height) + 14px); }
 .catalog-page .catalog-compact-card .visual {
   aspect-ratio: 4 / 3;
 }
@@ -2258,6 +2268,7 @@ dialog .accent {
   align-items: start;
   gap: 1rem 2rem;
 }
+.wallet-stripe-status { grid-column: 1 / -1; margin: 0; line-height: 1.5; }
 .wallet-panel h2,
 .wallet-history h2 {
   margin: 0 0 0.5rem;

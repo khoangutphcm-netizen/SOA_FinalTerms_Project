@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { connect } from "./demo-accounts.mjs";
-import { changeWallet, debitWallet, topUpAmounts, topUpWallet, walletSummary } from "./commerce-wallet.mjs";
+import { changeWallet, debitWallet, topUpLimits, topUpAmountMessage, validTopUpAmount, topUpWallet, walletSummary } from "./commerce-wallet.mjs";
 import { createCheckout, handleStripeWebhook } from "./commerce-stripe.mjs";
 
 const token = process.env.PCK_INTERNAL_TOKEN;
@@ -154,9 +154,10 @@ const server = createServer(async (req, res) => {
       const buyerId = searchParams.get("buyerId");
       const postId = searchParams.get("postId");
       if (pathname === "/wallet" && uuid.test(buyerId)) {
-        return send(res, 200, await withCommerceDb((client) =>
+        const wallet = await withCommerceDb((client) =>
           walletSummary(client, buyerId, searchParams.get("history") !== "0"),
-        ));
+        );
+        return send(res, 200, { ...wallet, topUpLimits });
       }
       if (pathname === "/purchases" && uuid.test(buyerId)) {
         return send(
@@ -206,8 +207,8 @@ const server = createServer(async (req, res) => {
     if (req.method === "POST" && pathname === "/wallet/top-up") {
       const { buyerId, amount, requestId } = (await readBody(req)) ?? {};
       if (typeof buyerId !== "string" || !uuid.test(buyerId) ||
-          typeof requestId !== "string" || !uuid.test(requestId) || !topUpAmounts.has(amount)) {
-        throw problem(400, "Chọn một mức nạp thử hợp lệ.");
+          typeof requestId !== "string" || !uuid.test(requestId) || !validTopUpAmount(amount)) {
+        throw problem(400, topUpAmountMessage);
       }
       return send(res, 200, await withCommerceDb((client) =>
         topUpWallet(client, buyerId, amount, requestId),

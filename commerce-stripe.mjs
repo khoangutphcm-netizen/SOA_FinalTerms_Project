@@ -1,5 +1,5 @@
 import Stripe from "stripe";
-import { topUpAmounts } from "./commerce-wallet.mjs";
+import { topUpAmountMessage, validTopUpAmount } from "./commerce-wallet.mjs";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const problem = (status, message) => Object.assign(new Error(message), { status });
@@ -19,9 +19,9 @@ export async function createCheckout({ buyerId, amount, requestId }) {
   if (
     !uuid.test(buyerId || "") ||
     !uuid.test(requestId || "") ||
-    !topUpAmounts.has(amount)
+    !validTopUpAmount(amount)
   )
-    throw problem(400, "Chọn một mức nạp hợp lệ.");
+    throw problem(400, topUpAmountMessage);
   let base;
   try {
     base = new URL(process.env.PCK_PUBLIC_URL || "http://127.0.0.1:3100");
@@ -75,7 +75,7 @@ export async function handleStripeWebhook(payload, signature, credit, stripe = s
     !uuid.test(buyerId || "") ||
     !uuid.test(requestId || "") ||
     session.currency !== "vnd" ||
-    !topUpAmounts.has(session.amount_total)
+    !validTopUpAmount(session.amount_total)
   )
     throw problem(400, "Giao dịch Stripe không hợp lệ.");
   await credit(buyerId, session.amount_total, requestId);

@@ -1,5 +1,8 @@
 const problem = (status, message) => Object.assign(new Error(message), { status });
-export const topUpAmounts = new Set([50000, 100000, 200000]);
+export const topUpLimits = { min: 20000, max: 1000000 };
+export const topUpAmountMessage = "Nhập số tiền nguyên từ 20.000 đến 1.000.000 ₫.";
+export const validTopUpAmount = amount =>
+  Number.isSafeInteger(amount) && amount >= topUpLimits.min && amount <= topUpLimits.max;
 
 export async function walletSummary(client, userId, includeHistory) {
   const history = includeHistory ? `, (
