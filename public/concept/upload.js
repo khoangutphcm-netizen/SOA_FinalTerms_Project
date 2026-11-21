@@ -11,6 +11,46 @@ export function createUploadTools(uploadState, esc) {
       ? Math.max(1, Math.round(bytes / 1024)) + " KiB"
       : (bytes / (1024 * 1024)).toFixed(1) + " MiB";
 
+  const hasDuration = (seconds) => Number.isFinite(seconds) && seconds > 0;
+  const maxPreviewStart = (seconds) =>
+    hasDuration(seconds) ? Math.min(86400, Math.ceil(seconds) - 1) : 86400;
+  const videoTime = (seconds) =>
+    Math.floor(seconds / 60) + ":" + String(Math.floor(seconds % 60)).padStart(2, "0");
+
+  function rememberUploadTime(video) {
+    const entry = uploadState.files[Number(video.dataset.uploadVideo)];
+    if (entry && Number.isFinite(video.currentTime)) entry.playhead = video.currentTime;
+  }
+
+  function syncUploadVideo(video) {
+    const entry = uploadState.files[Number(video.dataset.uploadVideo)];
+    if (!entry || !hasDuration(video.duration)) return;
+    entry.duration = video.duration;
+    const card = video.closest(".upload-file");
+    card.querySelector("[data-video-duration]").textContent =
+      video.duration < 1 ? "Dưới 1 giây" : "Thời lượng " + videoTime(video.duration);
+    const input = card.querySelector("[data-preview-start]");
+    if (input) {
+      input.max = maxPreviewStart(video.duration);
+      card.querySelector('[data-upload-action="preview-time"]').disabled = false;
+    }
+    if (entry.playhead > 0 && entry.playhead < video.duration) {
+      video.currentTime = entry.playhead;
+    }
+  }
+
+  function useCurrentPreviewTime(control) {
+    const card = control.closest(".upload-file");
+    const video = card.querySelector("[data-upload-video]");
+    const input = card.querySelector("[data-preview-start]");
+    const entry = uploadState.files[Number(control.dataset.index)];
+    if (!entry?.premium || !video || !input || !hasDuration(video.duration)) return;
+    const second = Math.min(maxPreviewStart(video.duration), Math.floor(video.currentTime));
+    input.value = String(second);
+    entry.previewStart = second;
+    card.querySelector("[data-preview-feedback]").textContent = "Đã chọn mốc " + videoTime(second) + ".";
+  }
+
   function uploadPriceSummary(form) {
     const count = uploadState.files.filter((entry) => entry.premium).length;
     const price = form.elements.price;
@@ -43,11 +83,11 @@ export function createUploadTools(uploadState, esc) {
         const preview = !entry.preview
           ? "<span>Tệp không có bản xem trước</span>"
           : entry.video
-            ? `<video src="${esc(entry.preview)}" controls playsinline preload="metadata" aria-label="${name}"></video>`
+            ? `<video src="${esc(entry.preview)}" data-upload-video="${index}" controls playsinline preload="metadata" aria-label="${name}"></video>`
             : `<img src="${esc(entry.preview)}" alt="${name}">`;
         return `<article class="upload-file">
    <div class="upload-preview">${preview}<span class="upload-chip">${cover ? "Đại diện" : entry.premium ? "Premium" : "Công khai"}</span></div>
-   <div class="upload-file-meta"><strong title="${name}">${name}</strong><small>${entry.video ? "Video" : "Ảnh"} · ${fileSize(entry.file.size)}</small></div>
+   <div class="upload-file-meta"><strong title="${name}">${name}</strong><small>${entry.video ? "Video" : "Ảnh"} · ${fileSize(entry.file.size)}</small>${entry.video ? `<small data-video-duration>${hasDuration(entry.duration) ? "Thời lượng " + videoTime(entry.duration) : ""}</small>` : ""}</div>
    <div class="upload-file-actions">
     <button type="button" class="btn light" data-upload-action="cover" data-index="${index}" aria-label="Chọn ${name} làm đại diện" aria-pressed="${cover}">${cover ? "✓ Đại diện" : "Đặt đại diện"}</button>
     <button type="button" class="btn light" data-upload-action="remove" data-index="${index}" aria-label="Xóa ${name}">Xóa</button>
@@ -56,9 +96,11 @@ export function createUploadTools(uploadState, esc) {
    Premium ${cover ? "<small>Ảnh bìa công khai</small>" : ""}</label>
    ${
      entry.video && entry.premium
-       ? `<label>Bắt đầu preview (giây)
-    <input type="number" min="0" max="86400" step="1" required name="previewStart:${index}" data-preview-start="${index}" value="${esc(entry.previewStart ?? 0)}">
-    <small>Tối đa 10 giây từ mốc này.</small></label>`
+       ? `<div class="preview-time-controls"><label>Bắt đầu preview (giây)
+    <input type="number" min="0" max="${maxPreviewStart(entry.duration)}" step="1" required name="previewStart:${index}" data-preview-start="${index}" value="${esc(entry.previewStart ?? 0)}">
+    </label>
+    <button type="button" class="btn light" data-upload-action="preview-time" data-index="${index}" disabled>Dùng mốc đang phát</button>
+    <small>Tối đa 10 giây từ mốc đã chọn.</small><small data-preview-feedback aria-live="polite"></small></div>`
        : ""
    }
   </article>`;
@@ -141,6 +183,9 @@ export function createUploadTools(uploadState, esc) {
     renderUploadFiles,
     addUploadFiles,
     buildUploadPayload,
+    syncUploadVideo,
+    rememberUploadTime,
+    useCurrentPreviewTime,
   };
 }
 

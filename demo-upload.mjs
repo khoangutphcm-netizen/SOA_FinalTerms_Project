@@ -190,8 +190,8 @@ async function saveUpload(
   }
 }
 
-async function readJson(req) {
-  const bytes = await body(req, 16384);
+async function readJson(req, limit = 16384) {
+  const bytes = await body(req, limit);
   try {
     if (bytes) return JSON.parse(bytes.toString("utf8"));
   } catch {}
@@ -200,7 +200,7 @@ async function readJson(req) {
 
 export async function handleDemo(req, res, path, send) {
   const media =
-    /^\/api\/demo\/(media|preview)\//.test(path) && req.method === "GET";
+    /^\/api\/demo\/(media|preview|avatar)\//.test(path) && req.method === "GET";
   if (!media && req.headers["x-pck-demo"] !== "1")
     return send(res, 403, { message: "Yêu cầu không hợp lệ." });
   const cookieName = "pck_demo";
@@ -213,6 +213,21 @@ export async function handleDemo(req, res, path, send) {
   )?.[1];
   const session = sessions.get(token);
   const active = session && session.expires > Date.now() ? session : null;
+  if (path.startsWith("/api/demo/avatar/") && req.method === "GET") {
+    const userId = path.slice("/api/demo/avatar/".length);
+    if (!uuid.test(userId)) return send(res, 404, { message: "Không tìm thấy ảnh đại diện." });
+    try {
+      const { jpeg } = await callService("IDENTITY", "avatar", { userId });
+      const image = Buffer.from(jpeg, "base64");
+      res.writeHead(200, {
+        "Content-Type": "image/jpeg", "Content-Length": image.length,
+        "Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff",
+      }).end(image);
+    } catch (error) {
+      return send(res, error.status || 503, { message: "Không tải được ảnh đại diện." });
+    }
+    return;
+  }
   const draftId = path.startsWith("/api/demo/edit-draft/")
     ? path.split("/").at(-1)
     : null;
@@ -222,6 +237,7 @@ export async function handleDemo(req, res, path, send) {
     ? "PUT"
     : {
         "/api/demo/session": "GET",
+        "/api/demo/profile": req.method === "PUT" ? "PUT" : "GET",
         "/api/demo/posts": "GET",
         "/api/demo/login": "POST",
         "/api/demo/register": "POST",
@@ -236,7 +252,7 @@ export async function handleDemo(req, res, path, send) {
   try {
     if (path === "/api/demo/session") {
       return send(res, 200, {
-        user: active ? { alias: active.alias, role: active.role } : null,
+        user: active ? { id: active.id, alias: active.alias, role: active.role, avatarVersion: active.avatarVersion } : null,
       });
     }
     if (path === "/api/demo/logout") {
@@ -276,16 +292,31 @@ export async function handleDemo(req, res, path, send) {
         id: user.id,
         alias: user.alias,
         role: user.role,
+        avatarVersion: user.avatarVersion,
         expires: Date.now() + hour,
       });
       res.setHeader(
         "Set-Cookie",
         cookieName + "=" + newToken + cookieSettings + "3600",
       );
-      return send(res, 200, { role: user.role, alias: user.alias });
+      return send(res, 200, { id:user.id, role:user.role, alias:user.alias, avatarVersion:user.avatarVersion });
     }
     if (!active)
       return send(res, 401, { message: "Hãy đăng nhập bằng tài khoản demo." });
+    if (path === "/api/demo/profile") {
+      const save = req.method === "PUT";
+      const input = save ? await readJson(req, 140000) : {};
+      if (!input) return send(res, 400, { message: "Thông tin hồ sơ không hợp lệ hoặc ảnh quá lớn." });
+      const profile = await callService("IDENTITY", save ? "profile-save" : "profile", { ...input, userId: active.id });
+      // Refresh the visible name and avatar in concurrent sessions for this account.
+      for (const existing of sessions.values()) {
+        if (existing.id === active.id) {
+          existing.alias = profile.alias;
+          existing.avatarVersion = profile.avatarVersion;
+        }
+      }
+      return send(res, 200, profile);
+    }
     if (path === "/api/demo/posts") {
       const keyword = (new URL(req.url,"http://localhost").searchParams.get("q") || "").trim().slice(0,100);
       const client = connect("CONTENT");

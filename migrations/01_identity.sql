@@ -9,6 +9,9 @@ CREATE TABLE
         ),
         password_hash text NOT NULL CHECK (password_hash <> ''),
         display_name text NOT NULL CHECK (trim(display_name) <> ''),
+        bio text NOT NULL DEFAULT '' CHECK (char_length(bio) <= 240),
+        avatar_jpeg bytea CHECK (octet_length(avatar_jpeg) <= 98304),
+        avatar_updated_at timestamptz,
         role text NOT NULL DEFAULT 'USER' CHECK (role IN ('USER', 'ADMIN')),
         status text NOT NULL DEFAULT 'PENDING_VERIFICATION' CHECK (
             status IN ('ACTIVE', 'DISABLED', 'PENDING_VERIFICATION')

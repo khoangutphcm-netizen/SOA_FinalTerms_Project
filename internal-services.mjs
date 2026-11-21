@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { connect } from "./demo-accounts.mjs";
 import { identity } from "./identity-handlers.mjs";
 import { community } from "./community-handlers.mjs";
+import { profileHandlers } from "./identity-profile.mjs";
 
 export { identity } from "./identity-handlers.mjs";
 
@@ -52,7 +53,7 @@ export function startDataService(service) {
       await query("SELECT 1");
       return { status: "ok", message: service + " đã kết nối PostgreSQL." };
     },
-    ...{ IDENTITY: identity, COMMUNITY: community }[service],
+    ...{ IDENTITY: { ...identity, ...profileHandlers }, COMMUNITY: community }[service],
   };
   const token = process.env.PCK_INTERNAL_TOKEN;
   if (!token) throw new Error("PCK_INTERNAL_TOKEN is required");
@@ -73,8 +74,9 @@ export function startDataService(service) {
     try {
       const chunks = [];
       let size = 0;
+      const bodyLimit = service === "IDENTITY" && operation === "profile-save" ? 148000 : 65536;
       for await (const chunk of req.iterator({ destroyOnReturn: false })) {
-        if ((size += chunk.length) > 65536) {
+        if ((size += chunk.length) > bodyLimit) {
           req.resume();
           return send(413, { message: "Yêu cầu quá lớn." });
         }

@@ -17,7 +17,7 @@ const groupKinds = {
   ],
 };
 
-export async function groups(kind, groupId) {
+export async function groups(kind, groupId, caller) {
   const [table, items, fk, visibility] = groupKinds[kind];
   const collectionCover =
     kind === "collections"
@@ -45,17 +45,19 @@ export async function groups(kind, groupId) {
     const {
       rows: [group],
     } = await client.query(
-      `SELECT g.id,g.title,g.description FROM public.${table} g WHERE g.id=$1 AND ${visibility}`,
+      `SELECT g.id,g.title,g.description${kind === "collections" ? ",g.owner_id" : ""} FROM public.${table} g WHERE g.id=$1 AND ${visibility}`,
       [groupId],
     );
     if (!group) throw problem(404, "Không tìm thấy danh mục.");
+    const canEdit = kind === "collections" && group.owner_id === caller?.id;
     const { rows: posts } = await client.query(
       withCoverKind(`SELECT ${postFields}, ${coverColumns}, i.position FROM public.${items} i
-      JOIN public.posts p ON p.id=i.post_id AND p.status='PUBLISHED' WHERE i.${fk}=$1`) +
+      JOIN public.posts p ON p.id=i.post_id AND (p.status='PUBLISHED' OR $2) WHERE i.${fk}=$1`) +
         " ORDER BY position",
-      [groupId],
+      [groupId, canEdit],
     );
-    return { group, posts };
+    const { owner_id, ...publicGroup } = group;
+    return { group: publicGroup, posts, canEdit };
   });
 }
 
@@ -94,6 +96,62 @@ export async function createCollection(caller, input) {
       );
       await client.query("COMMIT");
       return row;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    }
+  });
+}
+
+export async function myCollections(caller, postId) {
+  return query("CONTENT", `SELECT c.id,c.title,
+    EXISTS (SELECT 1 FROM public.collection_items i WHERE i.collection_id=c.id AND i.post_id=$2::uuid) AS contains_post
+    FROM public.collections c WHERE c.owner_id=$1 ORDER BY lower(c.title),c.id`,
+    [caller.id, postId || null]);
+}
+
+export async function renameCollection(id, caller, input) {
+  const title = typeof input?.title === "string" ? input.title.trim() : "";
+  if (!title || title.length > 80) throw problem(400, "Nhập tên bộ sưu tập tối đa 80 ký tự.");
+  const [row] = await query("CONTENT",
+    "UPDATE public.collections SET title=$3 WHERE id=$1 AND owner_id=$2 RETURNING id,title",
+    [id, caller.id, title]);
+  if (!row) throw problem(404, "Không tìm thấy bộ sưu tập của bạn.");
+  return row;
+}
+
+export async function changeCollectionItem(id, postId, caller, add) {
+  return withDb("CONTENT", async (client) => {
+    await client.query("BEGIN");
+    try {
+      const { rowCount } = await client.query(
+        "SELECT id FROM public.collections WHERE id=$1 AND owner_id=$2 FOR UPDATE", [id, caller.id],
+      );
+      if (!rowCount) throw problem(404, "Không tìm thấy bộ sưu tập của bạn.");
+      if (add) {
+        const { rowCount: available } = await client.query(
+          "SELECT id FROM public.posts WHERE id=$1 AND status='PUBLISHED' FOR SHARE", [postId],
+        );
+        if (!available) throw problem(409, "Tác phẩm hiện không công khai.");
+        const { rows: [state] } = await client.query(
+          `SELECT count(*)::int AS total, COALESCE(max(position),0) AS last,
+             COALESCE(bool_or(post_id=$2),false) AS included
+           FROM public.collection_items WHERE collection_id=$1`, [id, postId],
+        );
+        if (!state.included) {
+          if (state.total >= 25) throw problem(409, "Bộ sưu tập đã có 25 tác phẩm.");
+          await client.query(
+            "INSERT INTO public.collection_items (collection_id,post_id,position) VALUES ($1,$2,$3)",
+            [id, postId, state.last + 1],
+          );
+        }
+      } else {
+        await client.query(
+          "DELETE FROM public.collection_items WHERE collection_id=$1 AND post_id=$2", [id, postId],
+        );
+      }
+      await client.query("COMMIT");
+      return { active: add };
     } catch (error) {
       await client.query("ROLLBACK").catch(() => {});
       throw error;

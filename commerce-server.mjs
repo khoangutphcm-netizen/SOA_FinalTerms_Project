@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import { connect } from "./demo-accounts.mjs";
+import { debitWallet, topUpAmounts, topUpWallet, walletSummary } from "./commerce-wallet.mjs";
 
 const token = process.env.PCK_INTERNAL_TOKEN;
 if (!token) throw new Error("PCK_INTERNAL_TOKEN is required");
@@ -72,12 +73,13 @@ async function recordTestPurchase(id, caller, expectedPrice, post) {
       }
       if (expectedPrice !== Number(post.price_vnd))
         throw problem(409, "Giá đã thay đổi. Tải lại bài để xác nhận.");
+      const balanceVnd = await debitWallet(client, caller.id, expectedPrice);
       const {
         rows: [order],
       } = await client.query(
         `
         INSERT INTO public.orders (buyer_id,post_id,amount_vnd,provider,expires_at)
-        VALUES ($1,$2,$3,'PCK_TEST',now()+interval '15 minutes')
+        VALUES ($1,$2,$3,'PCK_WALLET_TEST',now()+interval '15 minutes')
         ON CONFLICT (buyer_id,post_id) WHERE status='PENDING' DO NOTHING RETURNING id`,
         [caller.id, id, post.price_vnd],
       );
@@ -85,19 +87,24 @@ async function recordTestPurchase(id, caller, expectedPrice, post) {
       await client.query(
         `
         INSERT INTO public.payment_events (order_id,provider,event_key,payload)
-        VALUES ($1,'PCK_TEST',$2,'{"mode":"test","result":"success"}'::jsonb)`,
-        [order.id, "pck-test:" + order.id],
+        VALUES ($1,'PCK_WALLET_TEST',$2,'{"mode":"demo_wallet","result":"success"}'::jsonb)`,
+        [order.id, "pck-wallet:" + order.id],
       );
       await client.query(
         "UPDATE public.orders SET status='PAID',paid_at=now(),provider_transaction_id=$2 WHERE id=$1",
-        [order.id, "pck-test:" + order.id],
+        [order.id, "pck-wallet:" + order.id],
+      );
+      await client.query(
+        `INSERT INTO public.wallet_entries (user_id,kind,amount_vnd,balance_after_vnd,order_id,post_id)
+         VALUES ($1,'PURCHASE',-$2::bigint,$3,$4,$5)`,
+        [caller.id, expectedPrice, balanceVnd, order.id, id],
       );
       await client.query(
         "INSERT INTO public.entitlements (buyer_id,post_id,source_order_id) VALUES ($1,$2,$3)",
         [caller.id, id, order.id],
       );
       await client.query("COMMIT");
-      return { id: order.id, status: "PAID", reused: false };
+      return { id: order.id, status: "PAID", reused: false, balanceVnd };
     } catch (error) {
       await client.query("ROLLBACK").catch(() => {});
       throw error;
@@ -126,12 +133,19 @@ const server = createServer(async (req, res) => {
       }
       const buyerId = searchParams.get("buyerId");
       const postId = searchParams.get("postId");
+      if (pathname === "/wallet" && uuid.test(buyerId)) {
+        return send(res, 200, await withCommerceDb((client) =>
+          walletSummary(client, buyerId, searchParams.get("history") !== "0"),
+        ));
+      }
       if (pathname === "/purchases" && uuid.test(buyerId)) {
         return send(
           res,
           200,
           await rows(
-            "SELECT post_id FROM public.entitlements WHERE buyer_id=$1 ORDER BY granted_at DESC LIMIT 50",
+            `SELECT e.post_id,o.id AS order_id,o.amount_vnd,COALESCE(o.paid_at,e.granted_at) AS purchased_at
+              FROM public.entitlements e JOIN public.orders o ON o.id=e.source_order_id
+              WHERE e.buyer_id=$1 ORDER BY purchased_at DESC,e.post_id`,
             [buyerId],
           ),
         );
@@ -147,6 +161,16 @@ const server = createServer(async (req, res) => {
         );
         return send(res, 200, { allowed: rights.length > 0 });
       }
+    }
+    if (req.method === "POST" && pathname === "/wallet/top-up") {
+      const { buyerId, amount, requestId } = (await readBody(req)) ?? {};
+      if (typeof buyerId !== "string" || !uuid.test(buyerId) ||
+          typeof requestId !== "string" || !uuid.test(requestId) || !topUpAmounts.has(amount)) {
+        throw problem(400, "Chọn một mức nạp thử hợp lệ.");
+      }
+      return send(res, 200, await withCommerceDb((client) =>
+        topUpWallet(client, buyerId, amount, requestId),
+      ));
     }
     if (req.method === "POST" && pathname === "/test-purchase") {
       const { buyerId, postId, price, authorId } = (await readBody(req)) ?? {};

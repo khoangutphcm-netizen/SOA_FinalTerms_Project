@@ -34,10 +34,11 @@ export async function removeLocalAssets(keys) {
   await Promise.all(
     keys.map(async (key) => {
       const file = key?.match(localKey)?.[1];
-      if (file)
-        await unlink(
-          new URL("./.pck-demo/uploads/" + file, import.meta.url),
-        ).catch(() => {});
+      if (file) {
+        await Promise.all([file, file + ".thumb-v1.jpg"].map(name =>
+          unlink(new URL(name, uploads)).catch(() => {}),
+        ));
+      }
     }),
   );
 }
@@ -121,20 +122,23 @@ export async function postMedia(post, caller) {
         kind,
       }) => {
         const locked = !full && purpose !== "PROMO";
+        const premium = Number(post.price_vnd) > 0 && purpose === "FULL";
         const [originalAvailable, previewAvailable] = await Promise.all([
           localAssetAvailable(original_key),
-          locked && localAssetAvailable(preview_key),
+          (locked || (premium && kind === "VIDEO")) && localAssetAvailable(preview_key),
         ]);
+        const previewSource = previewAvailable ? "/api/demo/preview/" + id : null;
         return {
           id,
           filename,
           purpose,
           mime_type,
           kind,
-          premium: Number(post.price_vnd) > 0 && purpose === "FULL",
+          premium,
           locked,
           originalAvailable,
-          previewUrl: previewAvailable ? "/api/demo/preview/" + id : null,
+          previewUrl: locked ? previewSource : null,
+          clipUrl: kind === "VIDEO" ? previewSource : null,
           url: originalAvailable && !locked ? mediaUrl(id) : null,
         };
       },

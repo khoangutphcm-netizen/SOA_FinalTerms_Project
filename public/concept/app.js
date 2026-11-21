@@ -3,6 +3,7 @@ import { discover } from "./discover.js";
 import { welcome, authForm, verifyForm } from "./auth.js";
 import { admin } from "./admin.js";
 import { handlePurchase } from "./purchase.js";
+import { avatar, avatarPayload, filterPurchases, money, profilePage, purchaseLibrary, walletPage } from "./account-extras.js";
 
 const app = document.querySelector("#app");
 const loginLink = document.querySelector("#login-link");
@@ -69,7 +70,7 @@ async function cycleHero(hero) {
     // The gradient remains visible if the image list cannot be loaded.
   }
 }
-let filters = {
+const browseDefaults = () => ({
   q: "",
   kind: "",
   sort: "new",
@@ -78,7 +79,8 @@ let filters = {
   offset: 0,
   include: [],
   exclude: [],
-};
+});
+let filters = browseDefaults();
 let galleryTimer,
   galleryIndex = 0,
   galleryPost = "";
@@ -91,6 +93,9 @@ const {
   renderUploadFiles,
   addUploadFiles,
   buildUploadPayload,
+  syncUploadVideo,
+  rememberUploadTime,
+  useCurrentPreviewTime,
 } = createUploadTools(uploadState, esc);
 
 async function api(path, options = {}) {
@@ -123,7 +128,7 @@ function notice(text) {
   noticeTimer = setTimeout(() => box.classList.remove("show"), 3700);
 }
 function button(label, action, id = "", next = "") {
-  return `<button class="btn light" data-action="${action}" data-id="${esc(id)}" data-next="${esc(next)}">${esc(label)}</button>`;
+  return `<button type="button" class="btn light" data-action="${action}" data-id="${esc(id)}" data-next="${esc(next)}">${esc(label)}</button>`;
 }
 function card(p, { quickSave = false, compact = false } = {}) {
   const types = p.kinds || [];
@@ -157,7 +162,7 @@ function card(p, { quickSave = false, compact = false } = {}) {
     : `<div class="card-body"><div class="catalog-card-meta"><span class="category">${esc(kinds.join(" · "))}</span>${p.genres?.length ? `<span>${esc(p.genres.join(" · "))}</span>` : ""}</div><h3>${esc(p.title)}</h3>
   <p>${esc(availablePrice)}</p></div>`}</a>
   ${showDetails ? `<button type="button" class="catalog-card-info" data-card-info aria-label="Thông tin tác phẩm ${esc(p.title)}" aria-controls="${infoId}" aria-expanded="false"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8h.01" stroke-linecap="round"/></svg></button>` : ""}
-  ${quickSave ? `<button type="button" class="card-save" data-quick-save="${esc(p.id)}" aria-label="Lưu ${esc(p.title)} vào Xem sau" aria-pressed="${savedForBrowse.has(p.id)}">${savedForBrowse.has(p.id) ? "Đã lưu" : "Lưu"}</button>` : ""}
+  ${quickSave ? `<div class="card-quick-actions"><button type="button" class="card-save" data-quick-save="${esc(p.id)}" aria-label="Lưu ${esc(p.title)} vào Xem sau" aria-pressed="${savedForBrowse.has(p.id)}">${savedForBrowse.has(p.id) ? "Đã lưu" : "Lưu"}</button><button type="button" class="card-save" data-action="collection-add" data-id="${esc(p.id)}" aria-label="Thêm ${esc(p.title)} vào bộ sưu tập" title="Thêm vào bộ sưu tập">＋</button></div>` : ""}
   ${video ? '<button type="button" class="video-card-toggle" aria-label="Phát video đại diện" data-video-toggle>▶</button>' : ""}</article>`;
 }
 const grid = (posts, msg = "Chưa có tác phẩm nào.", options) =>
@@ -231,12 +236,55 @@ let browseTimer,
   browseRequest = 0;
 let savedForBrowse = new Set();
 
-function browseSearch() {
-  const { include, exclude, ...basic } = filters;
+function browseParams(value) {
+  const { include, exclude, ...basic } = value;
   const search = new URLSearchParams(basic);
   for (const id of include) search.append("include", id);
   for (const id of exclude) search.append("exclude", id);
-  return api("catalog?" + search);
+  return search;
+}
+
+function browseRoute(value = filters) {
+  const search = browseParams(value);
+  for (const key of ["q", "kind", "pay", "days"]) {
+    if (!search.get(key)) search.delete(key);
+  }
+  if (!value.offset) search.delete("offset");
+  return "browse?" + search;
+}
+
+function readBrowseRoute(id, rawQuery) {
+  const kinds = ["IMAGE", "VIDEO", "MIXED"];
+  if (rawQuery === undefined) {
+    return kinds.includes(id) ? { ...browseDefaults(), kind: id } : filters;
+  }
+  const params = new URLSearchParams(rawQuery);
+  const choose = (key, allowed, fallback = "") => {
+    const value = params.get(key);
+    return allowed.includes(value) ? value : fallback;
+  };
+  const genres = (key) => [...new Set(params.getAll(key)
+    .filter((value) => /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value))
+    .map((value) => value.toLowerCase()))].slice(0, 50);
+  return {
+    q: (params.get("q") || "").trim().slice(0, 100),
+    kind: choose("kind", kinds),
+    sort: choose("sort", ["new", "old"], "new"),
+    pay: choose("pay", ["free", "premium"]),
+    days: choose("days", ["7", "30", "older"]),
+    offset: Math.min(3000, Math.max(0, Number.parseInt(params.get("offset"), 10) || 0)),
+    include: genres("include"),
+    exclude: genres("exclude"),
+  };
+}
+
+function rememberBrowseRoute() {
+  const hash = "#" + browseRoute();
+  if (location.hash !== hash) history.replaceState(history.state, "", hash);
+}
+
+function browseSearch() {
+  return api("catalog?" + browseParams(filters));
 }
 
 function browseResults(posts) {
@@ -247,6 +295,7 @@ function browseResults(posts) {
 }
 
 function updateBrowse(form, delay = 0) {
+  rememberBrowseRoute();
   clearTimeout(browseTimer);
   const request = ++browseRequest;
   const status = form.querySelector("[role=status]");
@@ -382,7 +431,7 @@ function publishedEditor({ post, media, genres: assigned }, genres) {
   <button class="btn dark">Lưu thay đổi</button><p role="status" class="muted"></p></form>`
   );
 }
-function gallery(media, i = 0) {
+function galleryFrame(media, i) {
   if (!media.length) return empty("Chưa có tệp để hiển thị.");
   const m = media[i];
   let view = "<span>Tệp hiện không khả dụng</span>";
@@ -403,12 +452,78 @@ function gallery(media, i = 0) {
         ? "Bản xem trước Premium"
         : "Tệp Premium chưa mở"
       : m.premium
-        ? "Tệp Premium"
+        ? "Premium · Đã mở quyền"
         : "Tệp công khai";
-  return `<div class="preview media-stage">${view}</div><div class="detail-file"><div><strong>${esc(m.filename)}</strong><span>${state}</span></div>${m.url ? `<a class="btn dark" href="${esc(m.url)}" download="${esc(m.filename)}">Tải bản gốc</a>` : ""}</div>
- <div class="media-thumbs" role="group" aria-label="Tệp trong tác phẩm">${media.map((f, k) => `<button type="button" class="btn light" data-media="${k}" aria-pressed="${i === k}">${kindNames[f.kind] || "Tệp"} ${k + 1}${f.premium ? " · Premium" : ""}</button>`).join("")}
- ${media.filter((f) => f.kind === "IMAGE" && f.url).length > 1 ? `<button type="button" class="btn light" data-action="cycle" aria-pressed="${Boolean(cycleOverrides.get(galleryPost))}">${cycleOverrides.get(galleryPost) ? "Dừng tự chuyển" : "Tự chuyển ảnh"}</button>` : ""}</div>
-  `;
+  return `<div class="preview media-stage">${view}</div><div class="detail-file"><div><span>Tệp ${i + 1}/${media.length} · ${kindNames[m.kind] || "Tệp"}</span><strong>${esc(m.filename)}</strong><span>${state}</span></div>${m.url ? `<a class="btn dark" href="${esc(m.url)}" download="${esc(m.filename)}">Tải bản gốc</a>` : ""}</div>`;
+}
+
+function galleryStrip(media, selected) {
+  const autoCycle = Boolean(cycleOverrides.get(galleryPost));
+  const cycleButton = media.filter((file) => file.kind === "IMAGE" && file.url).length > 1
+    ? `<button type="button" class="btn light" data-action="cycle" aria-pressed="${autoCycle}">${autoCycle ? "Dừng tự chuyển" : "Tự chuyển ảnh"}</button>`
+    : "";
+  const thumbnails = media.map((file, index) => {
+    const kind = kindNames[file.kind] || "Tệp";
+    const video = file.kind === "VIDEO";
+    const clip = video ? file.clipUrl || file.previewUrl : null;
+    const source = file.previewUrl || clip || file.url;
+    const label = `${kind} ${index + 1}: ${file.filename}${file.locked ? " · Premium" : ""}`;
+    return `<button type="button" class="gallery-thumb" data-media="${index}" ${clip ? `data-clip="${esc(clip)}"` : ""} aria-pressed="${index === selected}" aria-label="${esc(label)}" title="${esc(label)}">
+      <span class="gallery-thumb-empty" aria-hidden="true">${source ? kind : "Chưa có preview"}</span>
+      ${source ? `<img class="gallery-thumb-poster" src="${esc(source + "?thumbnail=1")}" ${file.kind === "IMAGE" ? `data-fallback="${esc(source)}"` : ""} alt="" loading="lazy">` : ""}
+      ${video ? '<span class="gallery-thumb-play" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span>' : ""}
+      ${file.locked ? '<span class="gallery-thumb-tier" aria-hidden="true">Premium</span>' : ""}
+    </button>`;
+  }).join("");
+  return `<div class="gallery-strip-heading"><strong>Tệp trong tác phẩm</strong>${cycleButton}</div>
+    <div class="media-thumbs" role="group" aria-label="Chọn tệp trong tác phẩm">${thumbnails}</div>`;
+}
+
+const likeButtonText = (liked, count) => `${liked ? "Bỏ thích" : "Thích"} · ${count}`;
+const commentRow = (comment) =>
+  `<div class="post-comment">${avatar({ id: comment.authorId, alias: comment.author, avatarVersion: comment.avatarVersion }, esc)}<div><strong>${esc(comment.author || "Người dùng PCK")}</strong><p>${esc(comment.body)}</p></div></div>`;
+
+async function togglePostLike(control, id) {
+  control.disabled = true;
+  try {
+    const { active, likes } = await api("catalog/" + encodeURIComponent(id) + "/like", {
+      method: control.dataset.action === "unlike" ? "DELETE" : "PUT",
+    });
+    if (!control.isConnected) return;
+    control.dataset.action = active ? "unlike" : "like";
+    control.setAttribute("aria-pressed", String(active));
+    control.textContent = likeButtonText(active, likes);
+  } catch (error) {
+    if (control.isConnected) notice(error.message);
+  } finally {
+    control.disabled = false;
+  }
+}
+
+async function addPostComment(form) {
+  const submit = form.querySelector("button");
+  if (submit.disabled) return;
+  const input = form.elements.text;
+  const originalText = input.value;
+  const status = form.querySelector("[role=status]");
+  submit.disabled = true;
+  status.textContent = "Đang gửi bình luận…";
+  try {
+    const { comment } = await json("catalog/" + encodeURIComponent(form.dataset.id) + "/comments", "POST", {
+      text: originalText,
+    });
+    if (!form.isConnected) return;
+    const list = form.closest(".comments").querySelector("[data-post-comments]");
+    list.querySelector("[data-comments-empty]")?.remove();
+    list.insertAdjacentHTML("afterbegin", commentRow(comment));
+    if (list.children.length > 50) list.lastElementChild.remove();
+    if (input.value === originalText) input.value = "";
+    status.textContent = "Đã gửi bình luận.";
+  } catch (error) {
+    if (form.isConnected) status.textContent = error.message;
+  } finally {
+    submit.disabled = false;
+  }
 }
 async function detail(id) {
   const data = await api("catalog/" + encodeURIComponent(id));
@@ -425,40 +540,41 @@ async function detail(id) {
     (published && data.identityAvailable === false
       ? "Thông tin tác giả tạm thời không khả dụng."
       : "");
+  const balance = data.walletBalance ?? null;
+  const amount = Number(post.price_vnd);
+  const walletDetails = balance === null ? (user ? "<p>Chưa đọc được số dư demo.</p>" : "") :
+    `<div class="checkout-balance"><span>Số dư demo <strong>${money(balance)}</strong></span>${
+      balance < amount
+        ? `<a href="#account/wallet?post=${encodeURIComponent(id)}">Nạp thử · Còn thiếu ${money(amount - balance)}</a>`
+        : `<span>Sau khi mua <strong>${money(balance - amount)}</strong></span>`
+    }</div>`;
   const form = (name, label) =>
     `<form id="${name}" data-id="${esc(id)}"><input name="text" required maxlength="1000" aria-label="${label}" placeholder="${label}"><button class="btn light">Gửi</button><p role="status"></p></form>`;
   return {
     media,
     post,
     html:
-      heading(post.title, author) +
+      heading(post.title, "", link("Về Khám phá", "#" + browseRoute())) +
       `<div class="detail"><section id="post-media"></section>
- <aside class="surface detail-summary"><p class="category">${esc(published ? (premiumCount ? "Premium" : "Miễn phí") : postStatus(post))}</p>
+ <aside class="surface detail-summary">${author ? `<div class="post-author">${post.author ? avatar({ id: post.author_id, alias: author, avatarVersion: post.authorAvatarVersion }, esc) : ""}<span>${esc(author)}</span></div>` : ""}<p class="category">${esc(published ? (premiumCount ? "Premium" : "Miễn phí") : postStatus(post))}</p>
  <h2>${esc(published ? price(post) : post.title)}</h2>
  <p>${media.length} tệp trong tác phẩm${premiumCount ? ` · ${premiumCount} tệp Premium` : ""}</p>
  ${
    published && locked
      ? purchaseAvailable
-       ? `<p>Một lần mua mở ${premiumCount} tệp Premium. Mua thử không thu tiền.</p><div class="detail-purchase">${button("Mua thử", "test-purchase", id, post.price_vnd)}<p class="purchase-status" role="status"></p></div>`
+       ? `<p>Một lần mua mở ${premiumCount} tệp Premium.</p>${walletDetails}${balance === null || balance >= amount ? `<div class="detail-purchase">${button(user ? "Mua bằng số dư demo" : "Đăng nhập để mua", "test-purchase", id, post.price_vnd)}<p class="purchase-status" role="status"></p></div>` : ""}`
        : "<p>Tạm dừng mua vì có tệp Premium không khả dụng.</p>"
      : ""
  }
  ${premiumCount && !locked && media.some((file) => file.url) ? "<p>Chọn một tệp còn khả dụng để tải bản gốc.</p>" : ""}
  ${post.description ? `<p class="detail-description">${esc(post.description)}</p>` : ""}
  ${data.canManage ? `<div class="button-row post-actions">${data.canPublish ? button("Phát hành", "publish", id) : ""}${postActions(post)}</div>` : ""}
- ${socialAvailable ? `<div class="button-row">${button((data.liked ? "Bỏ thích" : "Thích") + " · " + data.likes, data.liked ? "unlike" : "like", id)}${button(data.saved ? "Bỏ lưu" : "Xem sau", data.saved ? "unsave" : "save", id)}</div>` : ""}</aside></div>
+ ${published ? `<div class="button-row">${socialAvailable ? `<button type="button" class="btn light" data-action="${data.liked ? "unlike" : "like"}" data-id="${esc(id)}" aria-pressed="${data.liked}">${likeButtonText(data.liked, data.likes)}</button>${button(data.saved ? "Bỏ lưu" : "Xem sau", data.saved ? "unsave" : "save", id)}` : ""}${button("Thêm vào bộ sưu tập", "collection-add", id)}</div>` : ""}</aside></div>
  ${
    published
      ? `<section class="surface comments"><h2>Bình luận</h2>${
          socialAvailable
-           ? (data.comments.length
-               ? data.comments
-                   .map(
-                     (c) =>
-                       `<p><strong>${esc(c.author || "Người dùng PCK")}</strong> · ${esc(c.body)}</p>`,
-                   )
-                   .join("")
-               : "<p>Chưa có bình luận.</p>") +
+           ? `<div data-post-comments>${data.comments.length ? data.comments.map(commentRow).join("") : '<p data-comments-empty>Chưa có bình luận.</p>'}</div>` +
              (user
                ? form("comments-form", "Viết bình luận") +
                  `<details><summary>Báo cáo bài</summary>${form("report-form", "Lý do báo cáo")}</details>`
@@ -472,7 +588,17 @@ async function detail(id) {
 function updateGallery(direction) {
   const panel = document.querySelector("#post-media");
   if (!panel) return;
-  panel.innerHTML = gallery(currentMedia, galleryIndex);
+  const viewer = panel.querySelector("[data-gallery-view]");
+  if (!viewer) {
+    panel.innerHTML = currentMedia.length
+      ? `<div data-gallery-view>${galleryFrame(currentMedia, galleryIndex)}</div>${galleryStrip(currentMedia, galleryIndex)}`
+      : empty("Chưa có tệp để hiển thị.");
+    return;
+  }
+  viewer.innerHTML = galleryFrame(currentMedia, galleryIndex);
+  panel.querySelectorAll("[data-media]").forEach((thumb) => {
+    thumb.setAttribute("aria-pressed", String(Number(thumb.dataset.media) === galleryIndex));
+  });
   if (direction) {
     const stage = panel.querySelector(".media-stage");
     stage?.classList.add(
@@ -542,25 +668,28 @@ function searchOwnPosts(input, delay = 250) {
   }, delay);
 }
 
-async function account(tab = "profile") {
+async function account(tab = "profile", returnPost) {
   if (!user) return loginRequired("Đăng nhập để xem bài và nội dung của bạn.");
   const tabs = [
     ["profile", "Hồ sơ"],
     ["posts", "Bài của tôi"],
     ["saved", "Xem sau"],
     ["purchases", "Đã mua"],
+    ["collections", "Bộ của tôi"],
+    ["wallet", "Số dư"],
   ];
-  let content = `<div class="surface"><p>${esc(user.alias)} · ${esc(user.role)}</p>${user.role === "ADMIN" ? link("Quản trị", "#admin") : ""} ${button("Đăng xuất", "logout")}</div>`;
+  if (!tabs.some(([id]) => id === tab)) tab = "profile";
+  let content;
   if (tab === "posts") {
     const { posts } = await api("posts");
     content = `<section aria-label="Bài của tôi"><form id="own-post-search" role="search" aria-label="Tìm bài của tôi">
       <input type="search" name="q" maxlength="100" aria-label="Tìm bài của tôi" placeholder="Tìm theo tên hoặc mô tả bài…">
     </form><p class="muted" id="own-post-status" role="status"></p>
     <div id="own-post-results">${ownPostCards(posts)}</div></section>`;
-  } else if (["saved", "purchases"].includes(tab)) {
-    const { posts } = await api(tab);
+  } else if (tab === "saved") {
+    const { posts } = await api("saved");
     content =
-      tab === "saved" && posts.length
+      posts.length
         ? `<div class="grid">${posts
             .map(
               (p) =>
@@ -571,16 +700,23 @@ async function account(tab = "profile") {
                 }<div class="button-row">${button("Bỏ lưu", "unsave", p.id)}</div></div>`,
             )
             .join("")}</div>`
-        : grid(
-            posts,
-            tab === "saved"
-              ? "Bạn chưa lưu tác phẩm nào."
-              : "Bạn chưa mua tác phẩm nào.",
-          );
+        : empty("Bạn chưa lưu tác phẩm nào.");
+  } else if (tab === "purchases") {
+    content = purchaseLibrary((await api("purchases")).posts, esc, postLink);
+  } else if (tab === "wallet") {
+    content = walletPage(await api("wallet"), esc, returnPost);
+  } else if (tab === "collections") {
+    const { collections } = await api("my-collections");
+    content = `<div class="button-row account-collections-actions">${link("Tạo bộ sưu tập", "#collection-new", "dark")}</div>` +
+      (collections.length ? `<ul class="surface account-collections">${collections.map(group =>
+        `<li><a href="#collection/${encodeURIComponent(group.id)}">${esc(group.title)} <span aria-hidden="true">↗</span></a></li>`).join("")}</ul>` : empty("Bạn chưa có bộ sưu tập."));
+  } else {
+    content = profilePage(await api("profile"), esc,
+      (user.role === "ADMIN" ? link("Quản trị", "#admin") : "") + button("Đăng xuất", "logout"));
   }
   return (
     heading("Tài khoản", user.alias, link("Đăng tác phẩm", "#upload", "dark")) +
-    `<nav class="tabs">${tabs.map(([id, label]) => `<a href="#account/${id}" class="${id === tab ? "selected" : ""}">${label}</a>`).join("")}</nav>` +
+    `<nav class="tabs" aria-label="Tài khoản">${tabs.map(([id, label]) => `<a href="#account/${id}" ${id === tab ? 'class="selected" aria-current="page"' : ""}>${label}</a>`).join("")}</nav>` +
     content
   );
 }
@@ -600,8 +736,40 @@ async function newCollection() {
   );
 }
 async function groupPage(kind, id) {
-  const { group, posts } = await api(kind + "/" + encodeURIComponent(id));
-  return heading(group.title, group.description) + grid(posts);
+  const { group, posts, canEdit } = await api(kind + "/" + encodeURIComponent(id));
+  const head = heading(group.title, group.description, canEdit ? link("Tìm thêm tác phẩm", "#browse") : "");
+  if (!canEdit) return head + grid(posts);
+  return head + `<form id="collection-rename-form" class="surface collection-rename" data-id="${esc(id)}">
+    <label>Tên bộ sưu tập<input name="title" value="${esc(group.title)}" required maxlength="80"></label>
+    <button type="submit" class="btn dark">Lưu tên</button><p role="status" class="muted"></p></form>` +
+    (posts.length ? `<div class="grid">${posts.map(post => `<div class="collection-owned-post">${card(post)}${button("Bỏ khỏi bộ", "collection-remove", post.id, id)}</div>`).join("")}</div>` : empty("Bộ sưu tập chưa có tác phẩm."));
+}
+
+async function refreshCollectionPicker(dialog) {
+  const list = dialog.querySelector(".collection-picker-list");
+  const { collections } = await api("my-collections?" + new URLSearchParams({ postId: dialog.dataset.postId }));
+  if (!dialog.isConnected) return;
+  list.innerHTML = collections.length ? collections.map(group => `<li><button type="button" data-picker-collection="${esc(group.id)}"
+    aria-pressed="${group.contains_post}"><span>${esc(group.title)}</span><span>${group.contains_post ? "Đã thêm" : "Thêm"}</span></button></li>`).join("") : "<li>Bạn chưa có bộ sưu tập.</li>";
+}
+
+async function openCollectionPicker(postId) {
+  const dialog = document.createElement("dialog");
+  dialog.className = "surface collection-picker";
+  dialog.dataset.postId = postId;
+  dialog.setAttribute("aria-labelledby", "collection-picker-title");
+  dialog.innerHTML = `<header><h2 id="collection-picker-title">Thêm vào bộ sưu tập</h2><button class="btn light" type="button" data-collection-close aria-label="Đóng">×</button></header>
+    <ul class="collection-picker-list"><li>Đang tải bộ sưu tập…</li></ul><p class="muted" data-picker-status role="status"></p>
+    <form id="collection-picker-create"><label>Tên bộ mới<input name="title" maxlength="80" required></label><button class="btn dark" type="submit">Tạo và thêm</button><p class="muted" role="status"></p></form>`;
+  app.append(dialog);
+  dialog.addEventListener("close", () => dialog.remove(), { once: true });
+  dialog.showModal();
+  try {
+    await refreshCollectionPicker(dialog);
+  } catch (error) {
+    dialog.querySelector(".collection-picker-list").replaceChildren();
+    dialog.querySelector("[data-picker-status]").textContent = error.message;
+  }
 }
 function more() {
   return (
@@ -622,9 +790,10 @@ async function render({ selectedMediaId } = {}) {
   clearInterval(heroTimer);
   clearInterval(galleryTimer);
   const request = ++version;
-  const [route, id] = (
+  const [path, rawQuery] = (
     location.hash.slice(1) || (user ? "home" : "welcome")
-  ).split("/");
+  ).split("?");
+  const [route, id] = path.split("/");
   clearUploadFiles();
   document.body.classList.toggle(
     "admin-mode",
@@ -633,7 +802,7 @@ async function render({ selectedMediaId } = {}) {
   document.body.classList.toggle("welcome-mode", route === "welcome");
   adminLink.hidden = user?.role !== "ADMIN";
   loginLink.href = user ? "#account" : "#login";
-  loginLink.textContent = user ? user.alias : "Đăng nhập";
+  loginLink.innerHTML = user ? `${avatar(user, esc)}<span>${esc(user.alias)}</span>` : "Đăng nhập";
   document.querySelectorAll(".main-nav a").forEach((a) => {
     const parent =
       {
@@ -651,18 +820,8 @@ async function render({ selectedMediaId } = {}) {
   const pages = {
     home,
     browse: () => {
-      if (["IMAGE", "VIDEO", "MIXED"].includes(id))
-        filters = {
-          ...filters,
-          kind: id,
-          q: "",
-          sort: "new",
-          pay: "",
-          days: "",
-          offset: 0,
-          include: [],
-          exclude: [],
-        };
+      filters = readBrowseRoute(id, rawQuery);
+      rememberBrowseRoute();
       return discover({
         filters,
         browseSearch,
@@ -708,7 +867,7 @@ async function render({ selectedMediaId } = {}) {
         id,
       ),
     more,
-    account: () => account(id),
+    account: () => account(id, new URLSearchParams(rawQuery).get("post")),
     admin: () =>
       admin(
         {
@@ -782,6 +941,33 @@ function playCardVideo(video) {
   video.muted = true;
   video.play().catch(() => {});
 }
+function hoverGalleryClip(thumb, entering) {
+  thumb.classList.toggle("is-hovering", entering);
+  let video = thumb.querySelector(".gallery-thumb-clip");
+  if (!entering) {
+    thumb.classList.remove("is-playing");
+    if (video) {
+      video.pause();
+      if (video.readyState >= 1) video.currentTime = 0;
+    }
+    return;
+  }
+  if (!video) {
+    video = document.createElement("video");
+    video.className = "gallery-thumb-clip";
+    video.setAttribute("aria-hidden", "true");
+    video.muted = true;
+    video.playsInline = true;
+    video.loop = true;
+    video.src = thumb.dataset.clip;
+    video.addEventListener("playing", () => {
+      if (thumb.classList.contains("is-hovering")) thumb.classList.add("is-playing");
+    });
+    video.addEventListener("error", () => thumb.classList.remove("is-playing"));
+    thumb.append(video);
+  }
+  playCardVideo(video);
+}
 for (const [eventName, isEntering] of [
   ["pointerover", true],
   ["pointerout", false],
@@ -792,6 +978,11 @@ for (const [eventName, isEntering] of [
       window.matchMedia("(prefers-reduced-motion: reduce)").matches
     )
       return;
+    const thumb = event.target.closest(".gallery-thumb[data-clip]");
+    if (thumb) {
+      if (!thumb.contains(event.relatedTarget)) hoverGalleryClip(thumb, isEntering);
+      return;
+    }
     const card = event.target.closest(".video-card");
     if (!card || card.contains(event.relatedTarget)) return;
     const video = card.querySelector("video");
@@ -818,6 +1009,31 @@ for (const eventName of ["playing", "pause", "ended"]) {
   );
 }
 app.addEventListener("click", async (event) => {
+  const pickerClose = event.target.closest("[data-collection-close]");
+  if (pickerClose) {
+    pickerClose.closest("dialog").close();
+    return;
+  }
+  const pickerItem = event.target.closest("[data-picker-collection]");
+  if (pickerItem) {
+    const dialog = pickerItem.closest("dialog");
+    const status = dialog.querySelector("[data-picker-status]");
+    const add = pickerItem.getAttribute("aria-pressed") !== "true";
+    const path = `collections/${encodeURIComponent(pickerItem.dataset.pickerCollection)}/posts/${encodeURIComponent(dialog.dataset.postId)}`;
+    pickerItem.disabled = true;
+    status.textContent = "Đang cập nhật…";
+    try {
+      const { active } = await api(path, { method: add ? "PUT" : "DELETE" });
+      pickerItem.setAttribute("aria-pressed", String(active));
+      pickerItem.lastElementChild.textContent = active ? "Đã thêm" : "Thêm";
+      status.textContent = active ? "Đã thêm vào bộ sưu tập." : "Đã bỏ khỏi bộ sưu tập.";
+    } catch (error) {
+      status.textContent = error.message;
+    } finally {
+      pickerItem.disabled = false;
+    }
+    return;
+  }
   const format = event.target.closest("[data-format]");
   const reset = event.target.closest("[data-browse-reset]");
   const topic = event.target.closest("[data-topic]");
@@ -846,7 +1062,7 @@ app.addEventListener("click", async (event) => {
   const quickSave = event.target.closest("[data-quick-save]");
   if (quickSave) {
     if (!user) {
-      afterLogin = "browse";
+      afterLogin = browseRoute();
       notice("Đăng nhập để lưu tác phẩm.");
       go("login");
       return;
@@ -896,6 +1112,10 @@ app.addEventListener("click", async (event) => {
     const { uploadAction, index } = uploadControl.dataset;
     if (uploadAction === "add") {
       form.querySelector("#upload-picker").click();
+      return;
+    }
+    if (uploadAction === "preview-time") {
+      useCurrentPreviewTime(uploadControl);
       return;
     }
     const entry = uploadState.files[Number(index)];
@@ -949,8 +1169,10 @@ app.addEventListener("click", async (event) => {
   if (!control) return;
   const { action, id, next } = control.dataset;
   if (action === "cycle") {
-    cycleOverrides.set(galleryPost, !cycleOverrides.get(galleryPost));
-    updateGallery();
+    const enabled = !cycleOverrides.get(galleryPost);
+    cycleOverrides.set(galleryPost, enabled);
+    control.setAttribute("aria-pressed", String(enabled));
+    control.textContent = enabled ? "Dừng tự chuyển" : "Tự chuyển ảnh";
     scheduleGallery();
     return;
   }
@@ -968,6 +1190,8 @@ app.addEventListener("click", async (event) => {
     go("login");
     return;
   }
+  if (action === "like" || action === "unlike") return togglePostLike(control, id);
+  if (action === "collection-add") return openCollectionPicker(id);
   if (action === "test-purchase" || action === "check-purchase")
     return handlePurchase(
       {
@@ -1014,11 +1238,15 @@ app.addEventListener("click", async (event) => {
       go("account/posts");
       return;
     }
-    if (["like", "unlike", "save", "unsave"].includes(action)) {
+    if (["save", "unsave"].includes(action)) {
       const remove = action.startsWith("un");
       await api("catalog/" + id + "/" + (remove ? action.slice(2) : action), {
         method: remove ? "DELETE" : "PUT",
       });
+    }
+    if (action === "collection-remove") {
+      await api(`collections/${encodeURIComponent(next)}/posts/${encodeURIComponent(id)}`, { method: "DELETE" });
+      notice("Đã bỏ tác phẩm khỏi bộ sưu tập.");
     }
     if (action === "admin-post") {
       let reason;
@@ -1052,6 +1280,7 @@ app.addEventListener("click", async (event) => {
 });
 app.addEventListener("change", (event) => {
   const field = event.target;
+  if (field.form?.id === "purchase-filter") filterPurchases(field.form);
   if (field.form?.id === "browse-form" && field.matches("select"))
     filterBrowse(field.form);
   const form = field.closest("#upload-form");
@@ -1071,11 +1300,20 @@ app.addEventListener("change", (event) => {
       ?.focus({ preventScroll: true });
   }
 });
+app.addEventListener("loadedmetadata", (event) => {
+  if (event.target.matches?.("[data-upload-video]")) syncUploadVideo(event.target);
+}, true);
+app.addEventListener("timeupdate", (event) => {
+  if (event.target.matches?.("[data-upload-video]")) rememberUploadTime(event.target);
+}, true);
+
 app.addEventListener("input", (event) => {
   if (event.target.form?.id === "own-post-search") searchOwnPosts(event.target);
+  if (event.target.form?.id === "purchase-filter" && event.target.name === "q") filterPurchases(event.target.form);
   if (event.target.matches("[data-preview-start]")) {
     const entry = uploadState.files[Number(event.target.dataset.previewStart)];
     if (entry) entry.previewStart = event.target.value;
+    event.target.closest(".upload-file").querySelector("[data-preview-feedback]").textContent = "";
   }
   if (event.target.name === "q" && event.target.form?.id === "browse-form")
     filterBrowse(event.target.form, 300);
@@ -1102,21 +1340,54 @@ app.addEventListener("drop", (event) => {
   addUploadFiles(zone.closest("form"), [...event.dataTransfer.files]);
 });
 app.addEventListener("error", (event) => {
+  if (event.target.matches?.(".purchase-cover img")) {
+    event.target.hidden = true;
+    return;
+  }
+  if (event.target.matches?.(".gallery-thumb-poster")) {
+    const image = event.target;
+    if (image.dataset.fallback) {
+      image.src = image.dataset.fallback;
+      delete image.dataset.fallback;
+    } else image.hidden = true;
+    return;
+  }
   const cover = event.target.closest?.(".own-post-cover");
   if (!cover) return;
   event.target.hidden = true;
   cover.querySelector("span").hidden = false;
 }, true);
 
+document.addEventListener("error", (event) => {
+  if (event.target.matches?.(".user-avatar img")) event.target.hidden = true;
+}, true);
+
 document.querySelector("#global-search").addEventListener("submit", (event) => {
   event.preventDefault();
   const data = new FormData(event.currentTarget);
-  filters = {
-    q: String(data.get("q") || "").trim(),
-    kind: "", sort: "new", pay: "", days: "", offset: 0, include: [], exclude: [],
-  };
-  go("browse");
+  go(browseRoute({ ...browseDefaults(), q: String(data.get("q") || "").trim() }));
 });
+
+const pendingTopups = new Map();
+function topupRequestId(key, clear = false) {
+  if (clear) {
+    pendingTopups.delete(key);
+    try { sessionStorage.removeItem(key); } catch {}
+    return;
+  }
+  let id = pendingTopups.get(key);
+  try { id ??= sessionStorage.getItem(key); } catch {}
+  if (!id) {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 15) | 64;
+    bytes[8] = (bytes[8] & 63) | 128;
+    const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
+    id = `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+  }
+  pendingTopups.set(key, id);
+  try { sessionStorage.setItem(key, id); } catch {}
+  return id;
+}
 
 app.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -1130,10 +1401,13 @@ app.addEventListener("submit", async (event) => {
     filterBrowse(form);
     return;
   }
+  if (form.id === "purchase-filter") return filterPurchases(form);
+  if (form.id === "comments-form") return addPostComment(form);
   const status = form.querySelector("[role=status]");
   const buttons = [
     ...form.querySelectorAll("button[type=submit], button:not([type])"),
   ].filter((button) => !button.disabled);
+  if (!buttons.length) return;
   buttons.forEach((button) => {
     button.disabled = true;
   });
@@ -1158,6 +1432,9 @@ app.addEventListener("submit", async (event) => {
       if (uploadState.busy) return;
       const payload = buildUploadPayload(form);
       uploadState.busy = true;
+      status.textContent = uploadState.files.some((entry) => entry.premium)
+        ? "Đang lưu bản nháp và chuẩn bị bản xem trước Premium…"
+        : "Đang tải tệp và lưu bản nháp…";
       const fields = form.querySelector(".upload-fields");
       fields.disabled = true;
       let result;
@@ -1186,6 +1463,45 @@ app.addEventListener("submit", async (event) => {
       cycleOverrides.delete(form.dataset.id);
       notice("Đã lưu thay đổi.");
       go("post/" + form.dataset.id);
+    } else if (form.id === "profile-form") {
+      const userId = user.id;
+      const image = data.get("avatar");
+      const payload = { displayName: data.get("displayName"), bio: data.get("bio") };
+      if (image?.size) payload.avatarJpeg = await avatarPayload(image);
+      else if (data.has("removeAvatar")) payload.avatarJpeg = null;
+      if (user?.id !== userId) return;
+      const profile = await json("profile", "PUT", payload);
+      if (user?.id !== userId) return;
+      user = { ...user, ...profile };
+      notice("Đã lưu hồ sơ.");
+      render();
+    } else if (form.id === "wallet-topup-form") {
+      const amount = Number(data.get("amount"));
+      const key = `pck-topup-${user.id}-${amount}`;
+      try {
+        await json("wallet/top-up", "POST", { amount, requestId: topupRequestId(key) });
+      } catch (error) {
+        if (error.status >= 400 && error.status < 500 && error.status !== 408) topupRequestId(key, true);
+        throw error;
+      }
+      topupRequestId(key, true);
+      if (!form.isConnected) return;
+      notice(`Đã nạp thử ${money(amount)}.`);
+      render();
+    } else if (form.id === "collection-rename-form") {
+      await json("collections/" + encodeURIComponent(form.dataset.id), "PUT", { title: data.get("title") });
+      if (!form.isConnected) return;
+      notice("Đã đổi tên bộ sưu tập.");
+      render();
+    } else if (form.id === "collection-picker-create") {
+      const dialog = form.closest("dialog");
+      const collection = await json("collections", "POST", { title: data.get("title"), posts: [dialog.dataset.postId] });
+      if (!dialog.isConnected) return;
+      form.reset();
+      status.innerHTML = `Đã tạo bộ và thêm tác phẩm. <a href="#collection/${encodeURIComponent(collection.id)}">Mở bộ sưu tập</a>`;
+      await refreshCollectionPicker(dialog).catch(error => {
+        dialog.querySelector("[data-picker-status]").textContent = error.message;
+      });
     } else if (form.id === "collection-form") {
       const group = await json("collections", "POST", {
         title: data.get("title"),
@@ -1212,11 +1528,10 @@ app.addEventListener("submit", async (event) => {
       notice("Đã lưu sự kiện.");
       render();
     } else {
-      const action = form.id === "comments-form" ? "comments" : "report";
-      await json("catalog/" + form.dataset.id + "/" + action, "POST", {
+      await json("catalog/" + form.dataset.id + "/report", "POST", {
         text: data.get("text"),
       });
-      if (action === "report") notice("Đã gửi báo cáo.");
+      notice("Đã gửi báo cáo.");
       render();
     }
   } catch (error) {

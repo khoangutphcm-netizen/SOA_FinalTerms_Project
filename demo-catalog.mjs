@@ -1,6 +1,6 @@
 import { callService } from "./internal-services.mjs";
 import { testPurchase } from "./content-purchase.mjs";
-import { groups, createCollection } from "./content-collections.mjs";
+import { groups, createCollection, myCollections, renameCollection, changeCollectionItem } from "./content-collections.mjs";
 import { adminDashboard, saveEvent } from "./content-admin.mjs";
 import { moderatePost } from "./content-moderation.mjs";
 import { commerce } from "./commerce-client.mjs";
@@ -97,7 +97,13 @@ async function community(path, req, caller, id, readJson) {
     if (!input.content || input.content.length > 1000)
       throw problem(400, "Nhập nội dung từ 1 đến 1000 ký tự.");
   }
-  return callService("COMMUNITY", "interact", input);
+  const result = await callService("COMMUNITY", "interact", input);
+  if (action === "comments") {
+    return { ...result, comment: {
+      ...result.comment, author: caller.alias, authorId: caller.id, avatarVersion: caller.avatarVersion,
+    } };
+  }
+  return result;
 }
 
 async function detail(id, caller) {
@@ -137,11 +143,14 @@ async function detail(id, caller) {
     { ids },
     optionalService,
   ).catch(() => null);
-  const names = new Map(
-    (users ?? []).map((user) => [user.id, user.display_name]),
-  );
+  const profiles = new Map((users ?? []).map((user) => [user.id, user]));
+  const author = profiles.get(post.author_id);
+  const wallet = caller && media.some((file) => file.locked)
+    ? await commerce("/wallet?" + new URLSearchParams({ buyerId:caller.id, history:"0" }), undefined, optionalService).catch(() => null)
+    : null;
   return {
-    post: { ...post, author: names.get(post.author_id) },
+    post: { ...post, author: author?.display_name, authorAvatarVersion: author?.avatar_updated_at },
+    walletBalance: wallet?.balanceVnd ?? null,
     media,
     canManage,
     communityAvailable: Boolean(communityData),
@@ -150,35 +159,50 @@ async function detail(id, caller) {
       id: c.id,
       body: c.body,
       created_at: c.created_at,
-      author: names.get(c.author_id),
+      author: profiles.get(c.author_id)?.display_name,
+      authorId: c.author_id,
+      avatarVersion: profiles.get(c.author_id)?.avatar_updated_at,
     })),
     ...communityData?.reaction,
   };
 }
 
 async function library(kind, caller) {
+  const purchased = kind === "purchases";
   const rows =
     kind === "saved"
       ? await callService("COMMUNITY", "saved", { userId: caller.id })
       : await commerce(
           "/purchases?" + new URLSearchParams({ buyerId: caller.id }),
         );
+  if (!rows.length) return [];
+  const files = purchased ? `, ARRAY(SELECT a.original_key FROM public.assets a
+    WHERE a.post_id=p.id AND a.status='READY' AND a.purpose='FULL') AS premium_keys` : "";
   const posts = await query(
     "CONTENT",
-    withCoverKind(`SELECT ${postFields}, ${coverColumns} FROM public.posts p
+    withCoverKind(`SELECT ${postFields}, ${coverColumns}${files} FROM public.posts p
     WHERE p.id=ANY($1::uuid[]) AND ($2 OR p.status='PUBLISHED')`),
-    [rows.map((row) => row.post_id), kind === "purchases"],
+    [rows.map((row) => row.post_id), purchased],
   );
   const byId = new Map(posts.map((post) => [post.id, post]));
-  return rows.map(
-    (row) =>
-      byId.get(row.post_id) || {
+  const fallback = (row) => ({
         id: row.post_id,
         title: "Tác phẩm không khả dụng",
         status: "HIDDEN",
         unavailable: true,
-      },
-  );
+  });
+  if (!purchased) return rows.map((row) => byId.get(row.post_id) || fallback(row));
+  return Promise.all(rows.map(async (row) => {
+    const { premium_keys: keys = [], ...post } = byId.get(row.post_id) || fallback(row);
+    const canOpen = post.moderation_state !== "TAKEN_DOWN" &&
+      (post.status === "PUBLISHED" || Boolean(post.withdrawn_at) || post.moderation_state === "TEMP_HIDDEN");
+    const ready = canOpen ? (await Promise.all(keys.map(localAssetAvailable))).filter(Boolean).length : 0;
+    const downloadState = ready === 0 ? "UNAVAILABLE" : ready < keys.length ? "PARTIAL" : "READY";
+    return { ...post, purchase: {
+      orderId: row.order_id, purchasedAt: row.purchased_at, amountVnd: row.amount_vnd,
+      downloadState, canOpen,
+    } };
+  }));
 }
 
 export async function setPostGenre(client, id, genreId) {
@@ -356,6 +380,7 @@ export async function handleCatalog(req, res, path, send, caller, readJson) {
       path,
     );
   const group = /^\/api\/demo\/(collections|events)(?:\/([^/]+))?$/.exec(path);
+  const collectionItem = /^\/api\/demo\/collections\/([^/]+)\/posts\/([^/]+)$/.exec(path);
   const requireUser = () => {
     if (!caller) throw problem(401, "Hãy đăng nhập để tiếp tục.");
   };
@@ -367,7 +392,22 @@ export async function handleCatalog(req, res, path, send, caller, readJson) {
     if (path === "/api/demo/catalog" && req.method === "GET")
       return send(res, 200, { posts: await catalog(search) });
     if (group && req.method === "GET" && (!group[2] || uuid.test(group[2])))
-      return send(res, 200, await groups(group[1], group[2]));
+      return send(res, 200, await groups(group[1], group[2], caller));
+    if (path === "/api/demo/my-collections" && req.method === "GET") {
+      requireUser();
+      const postId = search.get("postId");
+      if (postId && !uuid.test(postId)) throw problem(400, "Tác phẩm không hợp lệ.");
+      return send(res, 200, { collections: await myCollections(caller, postId) });
+    }
+    if (group?.[1] === "collections" && group[2] && uuid.test(group[2]) && req.method === "PUT") {
+      requireUser();
+      return send(res, 200, await renameCollection(group[2], caller, await readJson(req)));
+    }
+    if (collectionItem && uuid.test(collectionItem[1]) && uuid.test(collectionItem[2]) &&
+        ["PUT","DELETE"].includes(req.method)) {
+      requireUser();
+      return send(res, 200, await changeCollectionItem(collectionItem[1], collectionItem[2], caller, req.method === "PUT"));
+    }
     if (path === "/api/demo/collections" && req.method === "POST") {
       requireUser();
       return send(
@@ -393,6 +433,17 @@ export async function handleCatalog(req, res, path, send, caller, readJson) {
       return send(res, 200, {
         posts: await library(path.split("/").at(-1), caller),
       });
+    }
+    if (path === "/api/demo/wallet" && req.method === "GET") {
+      requireUser();
+      return send(res, 200, await commerce("/wallet?" + new URLSearchParams({ buyerId:caller.id })));
+    }
+    if (path === "/api/demo/wallet/top-up" && req.method === "POST") {
+      requireUser();
+      const input = await readJson(req);
+      return send(res, 200, await commerce("/wallet/top-up", {
+        buyerId: caller.id, amount: input?.amount, requestId: input?.requestId,
+      }));
     }
     if (path === "/api/demo/admin" && req.method === "GET") {
       requireAdmin();
@@ -427,7 +478,7 @@ export async function handleCatalog(req, res, path, send, caller, readJson) {
       return send(res, 404, { message: "Không tìm thấy API." });
     const [, action, id, sub] = match;
     if (["media", "preview"].includes(action) && req.method === "GET")
-      return await sendMedia(req, res, id, caller, action === "preview");
+      return await sendMedia(req, res, id, caller, action === "preview", search.get("thumbnail") === "1");
     if (action === "catalog" && !sub && req.method === "GET")
       return send(res, 200, await detail(id, caller));
     if (sub) {

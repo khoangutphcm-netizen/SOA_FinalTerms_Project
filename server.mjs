@@ -29,6 +29,7 @@ const assets = {
     "text/javascript; charset=utf-8",
   ],
   "/demo-assets/auth.js": ["concept/auth.js", "text/javascript; charset=utf-8"],
+  "/demo-assets/account-extras.js": ["concept/account-extras.js", "text/javascript; charset=utf-8"],
   "/demo-assets/admin.js": [
     "concept/admin.js",
     "text/javascript; charset=utf-8",

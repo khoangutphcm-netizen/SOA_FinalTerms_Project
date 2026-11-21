@@ -1,3 +1,5 @@
+import { money } from "./account-extras.js";
+
 async function resolvePurchase(api, id, control) {
   let state = "UNAVAILABLE";
   for (const delay of [0, 1000, 2000]) {
@@ -24,7 +26,7 @@ export async function handlePurchase(
   const checking = action === "check-purchase";
   if (
     !checking &&
-    !window.confirm("Xác nhận mua thử? Không có tiền thật được thu.")
+    !window.confirm(`Dùng ${money(next)} từ số dư demo để mua tác phẩm này?`)
   )
     return;
   const status = control.nextElementSibling;
@@ -61,7 +63,7 @@ export async function handlePurchase(
     }
     if (!control.isConnected) return;
     const { selected, firstPremium } = getSelectedMedia();
-    notice("Mua thử thành công. Đã mở quyền xem.");
+    notice("Đã mua bằng số dư demo. Bạn có thể xem và tải tệp đã mở khóa.");
     await render({
       selectedMediaId: (selected?.premium ? selected : firstPremium)?.id,
     });

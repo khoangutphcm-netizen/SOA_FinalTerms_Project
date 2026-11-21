@@ -38,13 +38,13 @@ export const identity = {
     const login = normalizeEmail(identifier ?? email);
     if (!login || login.length > 254 || typeof password !== 'string' || !password.length || password.length > 128) return null;
     const demoId = accounts.find(([alias]) => alias===login)?.[1] ?? null;
-    const [user] = await query(`SELECT id,role,display_name,password_hash FROM public.users
+    const [user] = await query(`SELECT id,role,display_name,password_hash,avatar_updated_at FROM public.users
       WHERE (email_normalized=$1 OR id=$2::uuid)
         AND status='ACTIVE'`,[login,demoId]);
     const [method,salt,digest] = (user?.password_hash || '').split('$');
     const key = await derive(password,salt || 'pck-login-fallback',32);
     if (method!=='scrypt'||!salt||!/^[a-f0-9]{64}$/.test(digest)||!timingSafeEqual(key,Buffer.from(digest,'hex'))) return null;
-    return {id:user.id,role:user.role,alias:user.display_name};
+    return {id:user.id,role:user.role,alias:user.display_name,avatarVersion:user.avatar_updated_at};
   },
   async register(query, {email,password,displayName}) {
     email = normalizeEmail(email);
@@ -97,6 +97,6 @@ export const identity = {
       return {message:'Xác minh thành công. Hãy đăng nhập.'};
     } catch (error) { await query('ROLLBACK'); throw error; }
   },
-  names: (query,{ids}) => query('SELECT id,display_name FROM public.users WHERE id=ANY($1::uuid[])',[ids])
+  names: (query,{ids}) => query('SELECT id,display_name,avatar_updated_at FROM public.users WHERE id=ANY($1::uuid[])',[ids])
 };
 

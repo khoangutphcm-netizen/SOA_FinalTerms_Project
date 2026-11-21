@@ -13,13 +13,13 @@ Web nhận yêu cầu tại cổng 3100 và chuyển API ứng dụng tới Cont
 | Identity  |          3103 | Xác thực tài khoản demo và thông tin người dùng |
 | Community |          3104 | Thích, bình luận, báo cáo và Xem sau            |
 
-Content gọi các service khác qua HTTP nội bộ. Người dùng đăng ký bằng email và phải xác minh OTP trước khi đăng nhập. Phiên lưu trong bộ nhớ và mua thử dùng `PCK_TEST`. Thanh toán QR sandbox và kho tệp dùng chung chưa được tích hợp. Tệp tải lên nằm trong `.pck-demo/uploads/` của máy chạy Content.
+Content gọi các service khác qua HTTP nội bộ. Người dùng đăng ký bằng email và xác minh OTP trước khi đăng nhập. Identity giữ tên hiển thị, giới thiệu và ảnh đại diện. Commerce giữ số dư và lịch sử ví demo. Mua bằng ví ghi đơn `PCK_WALLET_TEST` và cấp quyền xem, tải bản gốc. Mục **Tài khoản → Đã mua** tra cứu đơn theo tên, ngày, giá và trạng thái tải. **Bộ của tôi** quản lý các bộ sưu tập của tài khoản. Tệp tác phẩm nằm trong `.pck-demo/uploads/` trên máy chạy Content.
 
 ## Việc cần làm theo ưu tiên
 
-- **P1: Nghiệp vụ và demo**: Tích hợp thanh toán sandbox; cấu hình DB và SMTP để kiểm thử OTP, đăng nhập, đăng bài và mua hàng từ giao diện. Hiện tại chỉ có `PCK_TEST`, chưa có giao dịch sandbox.
+- **P1: Nghiệp vụ và demo**: Tích hợp thanh toán QR sandbox và kiểm thử OTP, đăng nhập, đăng bài, nạp thử, mua và tải từ giao diện.
 - **P1: Khởi tạo DB**: `migrate.mjs` chưa nhận dạng được `CREATE TABLE` xuống dòng trong các file Identity, Commerce và Community. Sửa bộ nhận dạng và kiểm thử với bốn DB trống trước khi dùng script; hiện có hướng dẫn chạy SQL thủ công bên dưới.
-- **P1: Dữ liệu và giao diện**: Xem sau và Đã mua chỉ lấy 50 bài gần nhất. Thêm phân trang ở `community-handlers.mjs` và `commerce-server.mjs`; trả trạng thái lưu theo bài ở `public/concept/discover.js` để nút lưu không báo sai.
+- **P1: Dữ liệu và giao diện**: Xem sau lấy 50 bài gần nhất. Đã mua hiển thị toàn bộ quyền mua. Bổ sung phân trang khi thư viện có nhiều tác phẩm.
 - **P1: Bảo vệ xác thực**: `server.mjs` giới hạn đăng nhập, đăng ký, xác minh và gửi lại mã theo đường dẫn chung. Giới hạn thêm theo nguồn hoặc tài khoản để một người không chặn tất cả người khác. `identity-handlers.mjs` trả 429 khi email đang chờ xác minh gửi lại quá sớm, nhưng trả 200 cho email không tồn tại hoặc đã kích hoạt; cần thống nhất phản hồi để tránh lộ trạng thái tài khoản.
 - **P2: Tiêu chí triển khai và giám sát**: Bổ sung Docker Compose, Prometheus và dashboard Grafana cho các service. Docker đang để làm sau theo kế hoạch hiện tại. Khi làm Compose, xử lý địa chỉ `127.0.0.1` giữa các container và chia sẻ `PCK_INTERNAL_TOKEN` giữa các service. Kiểm thử ngrok khi có môi trường chạy.
 - **P2: Độ ổn định**: Phiên đăng nhập mất khi khởi động lại; tệp upload lưu trên máy Content; một tiến trình dừng sẽ làm launcher dừng toàn bộ hệ thống. Cần cân nhắc lưu phiên và tệp bền vững, cùng cơ chế phục hồi service.
@@ -54,7 +54,7 @@ Các lệnh dưới đây dùng PowerShell tại thư mục dự án.
    node --env-file=.env migrate-gallery.mjs
    ```
 
-   `migrate.mjs` hiện có lỗi nhận dạng SQL như ghi ở phần việc cần làm. Không chạy lại các file tạo bảng trên DB đã có dữ liệu. Với DB cũ, kiểm tra schema và chỉ áp dụng migration còn thiếu, gồm [kiểm duyệt](migrations/07_content_moderation.sql) và [preview](migrations/08_content_preview.sql) nếu cần.
+   `migrate.mjs` hiện có lỗi nhận dạng SQL như ghi ở phần việc cần làm. Với DB đã có dữ liệu, áp dụng riêng các migration còn thiếu. Chạy [10_identity_profile.sql](migrations/10_identity_profile.sql) trên Identity và [11_commerce_wallet.sql](migrations/11_commerce_wallet.sql) trên Commerce. Content có các migration riêng cho [kiểm duyệt](migrations/07_content_moderation.sql) và [preview](migrations/08_content_preview.sql).
 
 4. Cài FFmpeg nếu cần tạo preview Premium, theo phần bên dưới. Nếu cần tài khoản admin demo trên DB riêng, chạy `node --env-file=.env seed-demo.mjs` rồi lấy thông tin tại `.pck-demo/accounts.json`.
 

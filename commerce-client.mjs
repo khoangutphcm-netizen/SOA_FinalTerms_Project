@@ -1,4 +1,4 @@
-export async function commerce(path, body) {
+export async function commerce(path, body, { timeoutMs = 12000 } = {}) {
   let response;
   let data;
   try {
@@ -11,7 +11,7 @@ export async function commerce(path, body) {
           "Content-Type": "application/json",
         },
         body: body === undefined ? undefined : JSON.stringify(body),
-        signal: AbortSignal.timeout(12000),
+        signal: AbortSignal.timeout(timeoutMs),
       },
     );
     data = await response.json();
@@ -22,11 +22,11 @@ export async function commerce(path, body) {
     );
   }
   if (!response.ok) {
-    const conflict = response.status === 409;
+    const clientError = response.status >= 400 && response.status < 500;
     throw Object.assign(
-      new Error(conflict ? data.message : "Commerce tạm thời không khả dụng."),
+      new Error(clientError ? data.message : "Commerce tạm thời không khả dụng."),
       {
-        status: conflict ? 409 : 503,
+        status: clientError ? response.status : 503,
       },
     );
   }

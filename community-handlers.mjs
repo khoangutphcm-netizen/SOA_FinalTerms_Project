@@ -37,13 +37,22 @@ export const community = {
           ? `INSERT INTO public.${table} (user_id,post_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`
           : `DELETE FROM public.${table} WHERE user_id=$1 AND post_id=$2`;
       await query(sql, [userId, id]);
+      if (action === "like") {
+        const [reaction] = await query(
+          `SELECT count(*)::int AS likes, COALESCE(bool_or(user_id=$2),false) AS active
+          FROM public.likes WHERE post_id=$1`,
+          [id, userId],
+        );
+        return reaction;
+      }
       return { active: method === "PUT" };
     }
     if (action === "comments") {
-      await query(
-        "INSERT INTO public.comments (author_id,post_id,body) VALUES ($1,$2,$3)",
+      const [comment] = await query(
+        "INSERT INTO public.comments (author_id,post_id,body) VALUES ($1,$2,$3) RETURNING id,body,created_at",
         [userId, id, content],
       );
+      return { saved: true, comment };
     } else if (action === "report") {
       await query(
         `INSERT INTO public.reports (reporter_id,post_id,reason) VALUES ($1,$2,$3)

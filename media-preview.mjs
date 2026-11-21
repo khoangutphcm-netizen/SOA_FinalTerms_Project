@@ -2,12 +2,53 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { unlink } from "node:fs/promises";
+import { readFile, rename, unlink, writeFile } from "node:fs/promises";
 
 const run = promisify(execFile);
 const directory = new URL("./.pck-demo/uploads/", import.meta.url);
 const processError = (status, message) =>
   Object.assign(new Error(message), { status });
+
+const thumbnailJobs = new Map();
+const thumbnailWorkers = [Promise.resolve(), Promise.resolve()];
+let nextThumbnailWorker = 0;
+
+// Called with a validated local filename after Content checks access.
+export async function readThumbnail(name) {
+  const output = new URL(name + ".thumb-v1.jpg", directory);
+  try {
+    return await readFile(output);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+  const pending = thumbnailJobs.get(name);
+  if (pending) return pending;
+  if (thumbnailJobs.size >= 24) throw processError(503, "Đang tạo ảnh thu nhỏ. Hãy thử lại.");
+
+  const worker = nextThumbnailWorker;
+  nextThumbnailWorker = (worker + 1) % thumbnailWorkers.length;
+  const job = thumbnailWorkers[worker].then(async () => {
+    const source = fileURLToPath(new URL(name, directory));
+    const { stdout } = await run(process.env.PCK_FFMPEG_PATH || "ffmpeg", [
+      "-nostdin", "-v", "error", "-threads", "1", "-filter_threads", "1",
+      "-i", source, "-map", "0:v:0", "-frames:v", "1",
+      "-vf", "scale='min(360,iw)':'min(240,ih)':force_original_aspect_ratio=decrease,setsar=1",
+      "-c:v", "mjpeg", "-q:v", "5", "-f", "image2pipe", "pipe:1",
+    ], { encoding: "buffer", timeout: 6000, maxBuffer: 1024 * 1024, windowsHide: true });
+    if (!stdout.length) throw processError(422, "Tệp không có khung hình xem trước.");
+    const temp = new URL(".thumbnail-" + randomUUID() + ".jpg", directory);
+    try {
+      await writeFile(temp, stdout, { flag: "wx" });
+      await rename(temp, output);
+    } finally {
+      await unlink(temp).catch(() => {});
+    }
+    return stdout;
+  }).finally(() => thumbnailJobs.delete(name));
+  thumbnailJobs.set(name, job);
+  thumbnailWorkers[worker] = job.catch(() => {});
+  return job;
+}
 
 export async function makePreview(originalKey, video, start, written) {
   const match = /^local-demo\/([0-9a-f-]{36}\.(?:jpg|jpeg|png|mp4))$/i.exec(

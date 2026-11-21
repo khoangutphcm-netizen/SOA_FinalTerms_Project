@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { readThumbnail } from "./media-preview.mjs";
 import {
   uuid,
   localKey,
@@ -62,7 +63,7 @@ export async function catalog(search) {
   );
 }
 
-export async function sendMedia(req, res, id, caller, preview = false) {
+export async function sendMedia(req, res, id, caller, preview = false, thumbnail = false) {
   const [asset] = await query(
     "CONTENT",
     `SELECT a.post_id, a.original_key, a.preview_key, a.purpose, f.mime_type
@@ -78,6 +79,16 @@ export async function sendMedia(req, res, id, caller, preview = false) {
     throw problem(404, "Không có bản xem trước.");
   if (!preview && asset.purpose !== "PROMO" && !(await hasFull(post, caller)))
     throw problem(403, "Bạn chưa có quyền xem tệp.");
+  if (thumbnail) {
+    const image = await readThumbnail(key).catch(() => {
+      throw problem(404, "Ảnh thu nhỏ chưa khả dụng.");
+    });
+    res.writeHead(200, {
+      "Content-Type": "image/jpeg", "Content-Length": image.length,
+      "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
+    }).end(image);
+    return;
+  }
   const mime = preview
     ? key.endsWith(".mp4")
       ? "video/mp4"
