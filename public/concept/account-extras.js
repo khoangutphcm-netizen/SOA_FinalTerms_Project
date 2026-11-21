@@ -44,7 +44,7 @@ export async function avatarPayload(file) {
   } finally { bitmap.close(); }
 }
 
-export function walletPage(wallet, esc, returnPost) {
+export function walletPage(wallet, esc, returnPost, stripeStatus) {
   const ledger = wallet.history.map(entry => {
     const credit = entry.kind === "TOP_UP";
     return `<li><div><strong>${credit ? "Nạp thử" : "Mua tác phẩm"}</strong><span>${esc(date(entry.created_at))}</span></div>
@@ -54,10 +54,12 @@ export function walletPage(wallet, esc, returnPost) {
   return `<div class="surface wallet-panel">
     <div><h2>Số dư demo</h2><strong class="wallet-amount">${money(wallet.balanceVnd)}</strong>
       <p class="muted">Chỉ dùng để mua thử trên PCK.</p></div>
+    ${stripeStatus === "success" ? '<p role="status">Đã quay lại từ Stripe. Số dư sẽ cập nhật khi thanh toán được xác nhận; hãy tải lại nếu chưa thấy.</p>' : stripeStatus === "cancel" ? '<p role="status">Bạn đã hủy thanh toán Stripe.</p>' : ""}
     <form id="wallet-topup-form" class="wallet-topup">
       <label>Mức nạp thử<select name="amount">${[50000,100000,200000].map(value =>
         `<option value="${value}">${money(value)}</option>`).join("")}</select></label>
-      <button type="submit" class="btn dark">Nạp thử</button><p role="status" class="muted"></p>
+      <div class="button-row"><button type="submit" name="provider" value="demo" class="btn light">Nạp thử</button>
+      <button type="submit" name="provider" value="stripe" class="btn dark">Nạp qua Stripe test</button></div><p role="status" class="muted"></p>
     </form>
     ${returnPost ? `<a href="#post/${encodeURIComponent(returnPost)}">Quay lại tác phẩm</a>` : ""}
   </div><section class="surface wallet-history"><h2>Lịch sử giao dịch</h2>

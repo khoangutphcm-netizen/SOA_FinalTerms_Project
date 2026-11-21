@@ -668,7 +668,7 @@ function searchOwnPosts(input, delay = 250) {
   }, delay);
 }
 
-async function account(tab = "profile", returnPost) {
+async function account(tab = "profile", returnPost, stripeStatus) {
   if (!user) return loginRequired("Đăng nhập để xem bài và nội dung của bạn.");
   const tabs = [
     ["profile", "Hồ sơ"],
@@ -704,7 +704,7 @@ async function account(tab = "profile", returnPost) {
   } else if (tab === "purchases") {
     content = purchaseLibrary((await api("purchases")).posts, esc, postLink);
   } else if (tab === "wallet") {
-    content = walletPage(await api("wallet"), esc, returnPost);
+    content = walletPage(await api("wallet"), esc, returnPost, stripeStatus);
   } else if (tab === "collections") {
     const { collections } = await api("my-collections");
     content = `<div class="button-row account-collections-actions">${link("Tạo bộ sưu tập", "#collection-new", "dark")}</div>` +
@@ -867,7 +867,7 @@ async function render({ selectedMediaId } = {}) {
         id,
       ),
     more,
-    account: () => account(id, new URLSearchParams(rawQuery).get("post")),
+    account: () => account(id, new URLSearchParams(rawQuery).get("post"), new URLSearchParams(rawQuery).get("stripe")),
     admin: () =>
       admin(
         {
@@ -1417,7 +1417,12 @@ app.addEventListener("submit", async (event) => {
       const operation =
         event.submitter?.value === "resend" ? "resend" : "verify";
       const result = await json(operation, "POST", Object.fromEntries(data));
-      status.textContent = result.message;
+      if (operation === "verify" && form.isConnected) {
+        go("login");
+        notice(result.message);
+      } else {
+        status.textContent = result.message;
+      }
     } else if (form.id === "register-form") {
       await json("register", "POST", Object.fromEntries(data));
       verificationEmail = String(data.get("email"));
@@ -1477,9 +1482,17 @@ app.addEventListener("submit", async (event) => {
       render();
     } else if (form.id === "wallet-topup-form") {
       const amount = Number(data.get("amount"));
-      const key = `pck-topup-${user.id}-${amount}`;
+      const stripe = event.submitter?.value === "stripe";
+      const key = `pck-topup-${stripe ? "stripe-" : ""}${user.id}-${amount}`;
       try {
-        await json("wallet/top-up", "POST", { amount, requestId: topupRequestId(key) });
+        const result = await json(stripe ? "wallet/stripe-checkout" : "wallet/top-up", "POST", { amount, requestId: topupRequestId(key) });
+        if (stripe) {
+          const url = new URL(result.url);
+          if (url.protocol !== "https:" || url.hostname !== "checkout.stripe.com") throw new Error("Địa chỉ Stripe Checkout không hợp lệ.");
+          topupRequestId(key, true);
+          location.assign(url.href);
+          return;
+        }
       } catch (error) {
         if (error.status >= 400 && error.status < 500 && error.status !== 408) topupRequestId(key, true);
         throw error;

@@ -17,7 +17,7 @@ Content gọi các service khác qua HTTP nội bộ. Người dùng đăng ký 
 
 ## Việc cần làm theo ưu tiên
 
-- **P1: Nghiệp vụ và demo**: Tích hợp thanh toán QR sandbox và kiểm thử OTP, đăng nhập, đăng bài, nạp thử, mua và tải từ giao diện.
+- **P1: Nghiệp vụ và demo**: Kiểm thử Stripe Checkout sandbox từ giao diện đến webhook và ví, cùng các luồng OTP, đăng nhập, đăng bài, mua và tải. Phương thức thanh toán phụ thuộc cấu hình tài khoản Stripe; chưa tích hợp QR riêng.
 - **P1: Khởi tạo DB**: `migrate.mjs` chưa nhận dạng được `CREATE TABLE` xuống dòng trong các file Identity, Commerce và Community. Sửa bộ nhận dạng và kiểm thử với bốn DB trống trước khi dùng script; hiện có hướng dẫn chạy SQL thủ công bên dưới.
 - **P1: Dữ liệu và giao diện**: Xem sau lấy 50 bài gần nhất. Đã mua hiển thị toàn bộ quyền mua. Bổ sung phân trang khi thư viện có nhiều tác phẩm.
 - **P1: Bảo vệ xác thực**: `server.mjs` giới hạn đăng nhập, đăng ký, xác minh và gửi lại mã theo đường dẫn chung. Giới hạn thêm theo nguồn hoặc tài khoản để một người không chặn tất cả người khác. `identity-handlers.mjs` trả 429 khi email đang chờ xác minh gửi lại quá sớm, nhưng trả 200 cho email không tồn tại hoặc đã kích hoạt; cần thống nhất phản hồi để tránh lộ trạng thái tài khoản.
@@ -67,6 +67,26 @@ Chạy test tự động bằng `node --test test/*.test.mjs`. Test dùng mock; 
 Điền `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` trong `.env`. Dùng `SMTP_SECURE=1` với SMTP TLS trực tiếp (thường cổng 465), hoặc `0` với STARTTLS (thường cổng 587). Đặt `PCK_OTP_SECRET` thành chuỗi ngẫu nhiên ít nhất 32 ký tự và giữ bí mật, ổn định giữa các lần chạy. Tạo chuỗi bằng `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Không đưa các giá trị này lên Git.
 
 Mã gồm 6 chữ số, hết hạn sau 10 phút và bị khóa sau 5 lần nhập sai. Có thể gửi mã mới sau 60 giây. Tài khoản cũ đang chờ xác minh dùng liên kết xác minh trên màn đăng nhập để yêu cầu mã. Nếu gửi email thất bại, kiểm tra cấu hình SMTP rồi thử lại.
+
+### Nạp ví qua Stripe sandbox
+
+1. Tạo hoặc chọn sandbox trên Stripe Dashboard, mở mục API keys và lấy secret key bắt đầu bằng `sk_test_`. Điền vào `STRIPE_SECRET_KEY` trong `.env`. Không đưa khóa lên Git hoặc gửi qua chat. `PCK_PUBLIC_URL` mặc định là `http://127.0.0.1:3100`; nếu demo qua tunnel HTTPS, đặt giá trị này thành URL gốc của tunnel.
+2. Cài [Stripe CLI](https://docs.stripe.com/cli/install). Mở PowerShell mới và chạy `stripe login`, sau đó hoàn tất đăng nhập trong trình duyệt. Chọn cùng sandbox với test key ở bước 1.
+3. Chạy lệnh sau trong PowerShell và giữ terminal này mở để chuyển webhook về máy local:
+
+   ```powershell
+   stripe listen '--events=checkout.session.completed,checkout.session.async_payment_succeeded' --forward-to http://127.0.0.1:3100/api/stripe/webhook
+   ```
+
+4. Điền `STRIPE_WEBHOOK_SECRET` bằng signing secret `whsec_...` do lệnh trên cung cấp. Đây là secret của CLI, không phải API key. Trong terminal khác, chạy hoặc khởi động lại ứng dụng bằng `npm start` sau khi sửa `.env`.
+5. Đăng nhập PCK, vào **Tài khoản > Số dư**, chọn **Nạp qua Stripe test**. Trên Stripe Checkout, dùng [thẻ Visa test](https://docs.stripe.com/testing):
+   - Số thẻ: `4242 4242 4242 4242`.
+   - Ngày hết hạn: ngày bất kỳ trong tương lai, ví dụ `12/34`.
+   - CVC: ba chữ số bất kỳ, ví dụ `123`. Các ô thông tin khác có thể điền tùy ý.
+
+   Số dư chỉ được cộng khi webhook hợp lệ xác nhận thanh toán thành công. Nếu vừa quay về mà số dư chưa đổi, đợi webhook và tải lại trang. Trong terminal Stripe CLI, kiểm tra event `checkout.session.completed` trả HTTP 200.
+
+Đây là thẻ và giao dịch test, không chuyển tiền thật. Không nhập thông tin thẻ thật hoặc dùng khóa live. Nút **Nạp thử** vẫn hoạt động riêng để demo. Với endpoint HTTPS công khai, cấu hình webhook `/api/stripe/webhook` trong Stripe Dashboard test mode và dùng signing secret tương ứng. Giao dịch hoàn tất khi webhook chưa hoạt động cần được đối soát riêng, không tự cộng khi bật webhook sau đó.
 
 ### Preview Premium
 

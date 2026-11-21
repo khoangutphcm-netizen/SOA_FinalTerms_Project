@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { connect } from "./demo-accounts.mjs";
 import { debitWallet, topUpAmounts, topUpWallet, walletSummary } from "./commerce-wallet.mjs";
+import { createCheckout, handleStripeWebhook } from "./commerce-stripe.mjs";
 
 const token = process.env.PCK_INTERNAL_TOKEN;
 if (!token) throw new Error("PCK_INTERNAL_TOKEN is required");
@@ -25,16 +26,21 @@ async function rows(sql, params) {
   );
 }
 
-async function readBody(req) {
+async function readRawBody(req, limit = 4096) {
   const chunks = [];
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > 4096) throw problem(413, "Yêu cầu quá lớn.");
+    if (size > limit) throw problem(413, "Yêu cầu quá lớn.");
     chunks.push(chunk);
   }
+  return Buffer.concat(chunks);
+}
+
+async function readBody(req) {
+  const body = await readRawBody(req);
   try {
-    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    return JSON.parse(body.toString("utf8"));
   } catch {
     throw problem(400, "JSON không hợp lệ.");
   }
@@ -117,6 +123,14 @@ const server = createServer(async (req, res) => {
     return send(res, 403, { message: "Yêu cầu nội bộ." });
   try {
     const { pathname, searchParams } = new URL(req.url, "http://localhost");
+    if (req.method === "POST" && pathname === "/stripe/webhook") {
+      const payload = await readRawBody(req, 65536);
+      await handleStripeWebhook(payload, req.headers["stripe-signature"], (buyerId, amount, requestId) =>
+        withCommerceDb((client) => topUpWallet(client, buyerId, amount, requestId)));
+      return send(res, 200, { received: true });
+    }
+    if (req.method === "POST" && pathname === "/wallet/stripe-checkout")
+      return send(res, 200, await createCheckout(await readBody(req)));
     if (req.method === "GET") {
       if (pathname === "/health") {
         await rows("SELECT 1");

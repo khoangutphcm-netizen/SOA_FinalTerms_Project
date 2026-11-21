@@ -431,6 +431,13 @@ export async function handleCatalog(req, res, path, send, caller, readJson) {
         buyerId: caller.id, amount: input?.amount, requestId: input?.requestId,
       }));
     }
+    if (path === "/api/demo/wallet/stripe-checkout" && req.method === "POST") {
+      requireUser();
+      const input = await readJson(req);
+      return send(res, 200, await commerce("/wallet/stripe-checkout", {
+        buyerId: caller.id, amount: input?.amount, requestId: input?.requestId,
+      }));
+    }
     if (path === "/api/demo/admin" && req.method === "GET") {
       requireAdmin();
       return send(res, 200, await adminDashboard());
