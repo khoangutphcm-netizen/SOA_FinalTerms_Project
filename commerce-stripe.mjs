@@ -10,7 +10,7 @@ const paymentEvents = new Set([
 
 function stripeClient() {
   const key = process.env.STRIPE_SECRET_KEY || "";
-  if (!key.startsWith("sk_test_"))
+  if (!key.startsWith("sk_test_") && !key.startsWith("rk_test_"))
     throw problem(503, "Chưa cấu hình Stripe test secret key.");
   return new Stripe(key);
 }
@@ -32,19 +32,26 @@ export async function createCheckout({ buyerId, amount, requestId }) {
   if (!(base.protocol === "https:" || localHttp) || base.username || base.password)
     throw problem(503, "PCK_PUBLIC_URL phải dùng HTTPS hoặc localhost.");
   const root = base.origin;
-  const session = await stripeClient().checkout.sessions.create({
-    mode: "payment",
-    line_items: [{
-      price_data: {
-        currency: "vnd", unit_amount: amount,
-        product_data: { name: "Nạp số dư demo PCK" },
-      },
-      quantity: 1,
-    }],
-    metadata: { buyerId, requestId },
-    success_url: root + "/#account/wallet?stripe=success",
-    cancel_url: root + "/#account/wallet?stripe=cancel",
-  }, { idempotencyKey: `wallet-${buyerId}-${requestId}` });
+  const session = await stripeClient().checkout.sessions.create(
+    {
+      mode: "payment",
+      branding_settings: { display_name: "PKC Payment Portal" },
+      line_items: [
+        {
+          price_data: {
+            currency: "vnd",
+            unit_amount: amount,
+            product_data: { name: "Nạp số dư demo PCK" },
+          },
+          quantity: 1,
+        },
+      ],
+      metadata: { buyerId, requestId },
+      success_url: root + "/#account/wallet?stripe=success",
+      cancel_url: root + "/#account/wallet?stripe=cancel",
+    },
+    { idempotencyKey: `wallet-${buyerId}-${requestId}` },
+  );
   if (session.livemode || !session.url)
     throw problem(503, "Không tạo được Stripe Checkout test.");
   return { url: session.url };

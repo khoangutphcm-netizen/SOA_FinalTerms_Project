@@ -28,8 +28,8 @@ Content gọi các service khác qua HTTP nội bộ. Người dùng đăng ký 
 
 ### Bàn giao kiểm thử
 
-- Lần audit gần nhất: `node --test test/*.test.mjs` đạt 8/8; `node --check` đạt 31 tệp JavaScript. Test hiện tại dùng mock, chưa chứng minh tích hợp thật.
-- Máy audit chưa có `.env`; không tìm thấy FFmpeg trong PATH. Cần cấu hình bốn DB, SMTP, `PCK_OTP_SECRET` và FFmpeg trước khi chạy các luồng cần chúng. Có thể đặt `PCK_FFMPEG_PATH` nếu FFmpeg nằm ngoài PATH.
+- Ngày 21/11/2026, `node --test test/*.test.mjs` đạt 11/11. Test tự động dùng mock cho các phần tích hợp.
+- Đã kiểm tra Neon, gửi OTP qua SMTP thật và webhook Stripe test. Cần kiểm thử lại các luồng đầy đủ trên trình duyệt và lưu bằng chứng. Cấu hình DB, SMTP, Stripe và FFmpeg theo môi trường của từng máy.
 - Dùng hai tài khoản để thử đăng ký, OTP sai/hết hạn/gửi lại, đăng bài có ảnh và video Premium, xem preview, mua thử và tải. Kiểm tra cả tài khoản chưa mua và khách không tải được tệp Premium.
 - Thử mất kết nối SMTP hoặc service, thiếu tệp Premium, phản hồi mua bị gián đoạn, hơn 50 bài đã lưu hoặc đã mua, cùng giao diện trên màn hình nhỏ. Ghi lại kết quả thực tế và lỗi trước khi demo.
 
@@ -70,7 +70,7 @@ Mã gồm 6 chữ số, hết hạn sau 10 phút và bị khóa sau 5 lần nh�
 
 ### Nạp ví qua Stripe sandbox
 
-1. Tạo hoặc chọn sandbox trên Stripe Dashboard, mở mục API keys và lấy secret key bắt đầu bằng `sk_test_`. Điền vào `STRIPE_SECRET_KEY` trong `.env`. Không đưa khóa lên Git hoặc gửi qua chat. `PCK_PUBLIC_URL` mặc định là `http://127.0.0.1:3100`; nếu demo qua tunnel HTTPS, đặt giá trị này thành URL gốc của tunnel.
+1. Tạo hoặc chọn sandbox trên Stripe Dashboard, mở mục API keys và lấy secret key bắt đầu bằng `sk_test_` hoặc restricted key bắt đầu bằng `rk_test_`. Restricted key cần quyền tạo Checkout Session. Điền vào `STRIPE_SECRET_KEY` trong `.env`. Không đưa khóa lên Git hoặc gửi qua chat. `PCK_PUBLIC_URL` mặc định là `http://127.0.0.1:3100`; nếu demo qua tunnel HTTPS, đặt giá trị này thành URL gốc của tunnel.
 2. Cài [Stripe CLI](https://docs.stripe.com/cli/install). Mở PowerShell mới và chạy `stripe login`, sau đó hoàn tất đăng nhập trong trình duyệt. Chọn cùng sandbox với test key ở bước 1.
 3. Chạy lệnh sau trong PowerShell và giữ terminal này mở để chuyển webhook về máy local:
 
@@ -87,6 +87,14 @@ Mã gồm 6 chữ số, hết hạn sau 10 phút và bị khóa sau 5 lần nh�
    Số dư chỉ được cộng khi webhook hợp lệ xác nhận thanh toán thành công. Nếu vừa quay về mà số dư chưa đổi, đợi webhook và tải lại trang. Trong terminal Stripe CLI, kiểm tra event `checkout.session.completed` trả HTTP 200.
 
 Đây là thẻ và giao dịch test, không chuyển tiền thật. Không nhập thông tin thẻ thật hoặc dùng khóa live. Nút **Nạp thử** vẫn hoạt động riêng để demo. Với endpoint HTTPS công khai, cấu hình webhook `/api/stripe/webhook` trong Stripe Dashboard test mode và dùng signing secret tương ứng. Giao dịch hoàn tất khi webhook chưa hoạt động cần được đối soát riêng, không tự cộng khi bật webhook sau đó.
+
+Tên hiển thị trên Checkout hiện được đặt trong `branding_settings.display_name` của `commerce-stripe.mjs`. Để đổi tên, sửa giá trị này, khởi động lại ứng dụng và tạo Checkout Session mới. Tên hiển thị trong Stripe Dashboard có thể khác tên được đặt cho từng session.
+
+Nếu thanh toán thành công nhưng ví chưa tăng:
+
+- Kiểm tra Stripe CLI đang chạy và event trả HTTP 200. Trong PowerShell, giữ nguyên dấu nháy quanh `--events=...` để danh sách sự kiện không bị tách sai.
+- Kiểm tra `STRIPE_WEBHOOK_SECRET` là secret của CLI đang dùng, CLI và API key thuộc cùng sandbox, rồi khởi động lại ứng dụng sau khi sửa `.env`.
+- Nếu vừa quay về từ Checkout, đợi webhook xử lý rồi tải lại trang Số dư. Không thanh toán lại nhiều lần để thử xử lý giao dịch cũ.
 
 ### Preview Premium
 
