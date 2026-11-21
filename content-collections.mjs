@@ -6,6 +6,7 @@ import {
   withCoverKind,
   postFields,
   coverColumns,
+  originalExists,
 } from "./content-shared.mjs";
 const groupKinds = {
   collections: ["collections", "collection_items", "collection_id", "true"],
@@ -27,7 +28,7 @@ export async function groups(kind, groupId, caller) {
     JOIN public.assets a ON a.post_id=cp.id AND a.status='READY'
     JOIN public.asset_formats f ON f.id=a.format_id AND f.kind='IMAGE'
     WHERE ci.collection_id=g.id AND (cp.price_vnd=0 OR a.purpose='PROMO')
-      AND a.original_key LIKE 'local-demo/%'
+      AND ${originalExists}
     ORDER BY ci.position,a.position LIMIT 1
   ) AS cover_id`
       : "";

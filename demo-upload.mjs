@@ -1,12 +1,11 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdir, writeFile, unlink } from "node:fs/promises";
 import { connect } from "./demo-accounts.mjs";
 import { callService } from "./internal-services.mjs";
 import { makePreview } from "./media-preview.mjs";
+import { originalExists } from "./content-shared.mjs";
 import {
   handleCatalog,
   problem,
-  removeLocalAssets,
   setPostGenre,
 } from "./demo-catalog.mjs";
 
@@ -50,14 +49,10 @@ async function saveUpload(
   { title, description, genreId, price, autoCycle, files, draftId, revision },
 ) {
   const client = connect("CONTENT");
-  const directory = new URL("./.pck-demo/uploads/", import.meta.url);
-  const written = [];
-  let committing = false;
   try {
     await client.connect();
     await client.query("BEGIN");
     let post;
-    const removed = [];
     const byId = new Map();
     if (draftId) {
       const {
@@ -73,12 +68,18 @@ async function saveUpload(
       const retained = files.filter((file) => file.id).map((file) => file.id);
       const { rows: existing } = await client.query(
         `
-        SELECT a.id,a.size_bytes,a.original_key,a.preview_key,a.preview_start_seconds,f.kind FROM public.assets a JOIN public.asset_formats f ON f.id=a.format_id
+        SELECT a.id,a.size_bytes,a.original_key,a.preview_key,a.preview_start_seconds,f.kind,
+          o.asset_id IS NOT NULL AS original_present, v.asset_id IS NOT NULL AS preview_present
+        FROM public.assets a JOIN public.asset_formats f ON f.id=a.format_id
+        LEFT JOIN public.asset_blobs o ON o.asset_id=a.id AND o.variant='ORIGINAL' AND o.object_key=a.original_key
+        LEFT JOIN public.asset_blobs v ON v.asset_id=a.id AND v.variant='PREVIEW' AND v.object_key=a.preview_key
         WHERE a.post_id=$1 AND a.id=ANY($2::uuid[]) AND a.status='READY'`,
         [draftId, retained],
       );
       if (existing.length !== retained.length)
         throw problem(400, "Một tệp giữ lại không thuộc bản nháp này.");
+      if (existing.some((file) => !file.original_present))
+        throw problem(409, "Một tệp giữ lại chưa có trên Neon. Hãy thay tệp đó trong bản nháp.");
       for (const file of existing) byId.set(file.id, file);
       const size = files.reduce(
         (total, file) =>
@@ -88,12 +89,9 @@ async function saveUpload(
       );
       if (size > maxTotal) throw problem(413, "Tổng dung lượng tối đa 40 MiB.");
       await client.query("SET CONSTRAINTS ALL DEFERRED");
-      const result = await client.query(
-        "DELETE FROM public.assets WHERE post_id=$1 AND NOT (id=ANY($2::uuid[])) RETURNING original_key,preview_key",
+      await client.query(
+        "DELETE FROM public.assets WHERE post_id=$1 AND NOT (id=ANY($2::uuid[]))",
         [draftId, retained],
-      );
-      removed.push(
-        ...result.rows.flatMap((row) => [row.original_key, row.preview_key]),
       );
     }
     const { rows: formats } = await client.query(
@@ -104,7 +102,6 @@ async function saveUpload(
     );
     if (files.some((f) => !f.id && !formatIds.has(f.extension + " " + f.mime)))
       return null;
-    await mkdir(directory, { recursive: true });
     if (draftId) {
       await client.query(
         "UPDATE public.posts SET title=$2,description=$3,price_vnd=$4,auto_cycle=$5 WHERE id=$1",
@@ -128,62 +125,70 @@ async function saveUpload(
         ? existing.kind === "VIDEO"
         : file.extension === "mp4";
       const start = video && file.premium ? file.previewStart : 0;
-      let original = existing?.original_key;
-      if (!existing) {
-        const key = randomUUID() + "." + file.extension;
-        const path = new URL(key, directory);
-        await writeFile(path, file.bytes, { flag: "wx" });
-        written.push(path);
-        original = "local-demo/" + key;
+      const original = existing?.original_key ?? "neon/" + randomUUID() + "." + file.extension;
+      let preview = null;
+      let previewBytes;
+      if (file.premium) {
+        if (existing?.preview_present && existing.preview_start_seconds === start) {
+          preview = existing.preview_key;
+        } else {
+          const bytes = existing
+            ? (await client.query(
+                "SELECT body FROM public.asset_blobs WHERE asset_id=$1 AND variant='ORIGINAL'",
+                [file.id],
+              )).rows[0].body
+            : file.bytes;
+          previewBytes = await makePreview(bytes, video, start);
+          preview = "neon/" + randomUUID() + (video ? ".mp4" : ".jpg");
+        }
       }
-      const preview = file.premium
-        ? existing?.preview_key && existing.preview_start_seconds === start
-          ? existing.preview_key
-          : await makePreview(original, video, start, written)
-        : null;
-      if (existing?.preview_key && existing.preview_key !== preview)
-        removed.push(existing.preview_key);
+      let assetId = file.id;
       if (file.id) {
         await client.query(
           "UPDATE public.assets SET position=$2,purpose=$3,preview_key=$4,preview_start_seconds=$5 WHERE id=$1",
           [file.id, index + 1, purpose, preview, start],
         );
-        assetIds.push(file.id);
-        continue;
+        if (!preview) await client.query(
+          "DELETE FROM public.asset_blobs WHERE asset_id=$1 AND variant='PREVIEW'", [assetId],
+        );
+      } else {
+        const {
+          rows: [asset],
+        } = await client.query(
+          `INSERT INTO public.assets (post_id,format_id,original_key,filename,size_bytes,position,purpose,preview_key,preview_start_seconds,status)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'READY') RETURNING id`,
+          [
+            post.id,
+            formatIds.get(file.extension + " " + file.mime),
+            original,
+            file.name,
+            file.bytes.length,
+            index + 1,
+            purpose,
+            preview,
+            start,
+          ],
+        );
+        assetId = asset.id;
+        await client.query(
+          "INSERT INTO public.asset_blobs (asset_id,variant,object_key,body) VALUES ($1,'ORIGINAL',$2,$3)",
+          [assetId, original, file.bytes],
+        );
       }
-      const {
-        rows: [asset],
-      } = await client.query(
-        `
-        INSERT INTO public.assets (post_id,format_id,original_key,filename,size_bytes,position,purpose,preview_key,preview_start_seconds,status)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'READY') RETURNING id`,
-        [
-          post.id,
-          formatIds.get(file.extension + " " + file.mime),
-          original,
-          file.name,
-          file.bytes.length,
-          index + 1,
-          purpose,
-          preview,
-          start,
-        ],
+      if (previewBytes) await client.query(
+        `INSERT INTO public.asset_blobs (asset_id,variant,object_key,body) VALUES ($1,'PREVIEW',$2,$3)
+         ON CONFLICT (asset_id,variant) DO UPDATE SET object_key=excluded.object_key,body=excluded.body,thumbnail=NULL`,
+        [assetId, preview, previewBytes],
       );
-      assetIds.push(asset.id);
+      assetIds.push(assetId);
     }
-    committing = true;
     await client.query("COMMIT");
-    await removeLocalAssets(removed);
     return {
       postId: post.id,
       assetId: assetIds[0],
       assetIds,
       status: post.status,
     };
-  } catch (error) {
-    if (!committing)
-      await Promise.all(written.map((path) => unlink(path).catch(() => {})));
-    throw error;
   } finally {
     await client.query("ROLLBACK").catch(() => {});
     await client.end().catch(() => {});
@@ -331,7 +336,7 @@ export async function handleDemo(req, res, path, send) {
             SELECT a.id,f.kind FROM public.assets a
             JOIN public.asset_formats f ON f.id=a.format_id
             WHERE a.post_id=p.id AND a.status='READY' AND f.kind IN ('IMAGE','VIDEO')
-              AND a.original_key LIKE 'local-demo/%'
+              AND ${originalExists}
               AND p.moderation_state<>'TAKEN_DOWN'
               AND (p.status IN ('DRAFT','PUBLISHED') OR p.withdrawn_at IS NOT NULL OR p.moderation_state='TEMP_HIDDEN')
             ORDER BY a.position LIMIT 1

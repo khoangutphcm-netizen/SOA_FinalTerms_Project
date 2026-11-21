@@ -13,7 +13,7 @@ Web nhận yêu cầu tại cổng 3100 và chuyển API ứng dụng tới Cont
 | Identity  |          3103 | Xác thực tài khoản demo và thông tin người dùng |
 | Community |          3104 | Thích, bình luận, báo cáo và Xem sau            |
 
-Content gọi các service khác qua HTTP nội bộ. Người dùng đăng ký bằng email và xác minh OTP trước khi đăng nhập. Identity giữ tên hiển thị, giới thiệu và ảnh đại diện. Commerce giữ số dư và lịch sử ví demo. Mua bằng ví ghi đơn `PCK_WALLET_TEST` và cấp quyền xem, tải bản gốc. Mục **Tài khoản → Đã mua** tra cứu đơn theo tên, ngày, giá và trạng thái tải. **Bộ của tôi** quản lý các bộ sưu tập của tài khoản. Tệp tác phẩm nằm trong `.pck-demo/uploads/` trên máy chạy Content.
+Content gọi các service khác qua HTTP nội bộ. Người dùng đăng ký bằng email và xác minh OTP trước khi đăng nhập. Identity giữ tên hiển thị, giới thiệu và ảnh đại diện. Commerce giữ số dư và lịch sử ví demo. Mua bằng ví ghi đơn `PCK_WALLET_TEST` và cấp quyền xem, tải bản gốc. Mục **Tài khoản → Đã mua** tra cứu đơn theo tên, ngày, giá và trạng thái tải. **Bộ của tôi** quản lý các bộ sưu tập của tài khoản. Tệp gốc, preview và ảnh thu nhỏ được lưu trong `asset_blobs` trên Content DB Neon.
 
 ## Việc cần làm theo ưu tiên
 
@@ -22,7 +22,7 @@ Content gọi các service khác qua HTTP nội bộ. Người dùng đăng ký 
 - **P1: Dữ liệu và giao diện**: Xem sau lấy 50 bài gần nhất. Đã mua hiển thị toàn bộ quyền mua. Bổ sung phân trang khi thư viện có nhiều tác phẩm.
 - **P1: Bảo vệ xác thực**: `server.mjs` giới hạn đăng nhập, đăng ký, xác minh và gửi lại mã theo đường dẫn chung. Giới hạn thêm theo nguồn hoặc tài khoản để một người không chặn tất cả người khác. `identity-handlers.mjs` trả 429 khi email đang chờ xác minh gửi lại quá sớm, nhưng trả 200 cho email không tồn tại hoặc đã kích hoạt; cần thống nhất phản hồi để tránh lộ trạng thái tài khoản.
 - **P2: Tiêu chí triển khai và giám sát**: Bổ sung Docker Compose, Prometheus và dashboard Grafana cho các service. Docker đang để làm sau theo kế hoạch hiện tại. Khi làm Compose, xử lý địa chỉ `127.0.0.1` giữa các container và chia sẻ `PCK_INTERNAL_TOKEN` giữa các service. Kiểm thử ngrok khi có môi trường chạy.
-- **P2: Độ ổn định**: Phiên đăng nhập mất khi khởi động lại; tệp upload lưu trên máy Content; một tiến trình dừng sẽ làm launcher dừng toàn bộ hệ thống. Cần cân nhắc lưu phiên và tệp bền vững, cùng cơ chế phục hồi service.
+- **P2: Độ ổn định**: Phiên đăng nhập mất khi khởi động lại. Một tiến trình dừng sẽ làm launcher dừng toàn bộ hệ thống. Cần cân nhắc lưu phiên bền vững và cơ chế phục hồi service.
 - **P2: Kiểm thử giao diện**: Kiểm tra luồng thực tế, màn hình nhỏ, trạng thái tải và lỗi của từng chức năng. Chưa có kết quả kiểm thử trình duyệt với DB và SMTP thật.
 - **P3: Dọn giao diện cũ**: `public/concept/index.html` là giao diện chính, `public/index.html` kiểm tra DB; `public/demo.html` là trang demo cũ không được khai báo route. Xác nhận còn cần trước khi xóa.
 
@@ -69,6 +69,8 @@ Chạy test tự động bằng `node --test test/*.test.mjs`. Test dùng mock; 
 Mã gồm 6 chữ số, hết hạn sau 10 phút và bị khóa sau 5 lần nhập sai. Có thể gửi mã mới sau 60 giây. Tài khoản cũ đang chờ xác minh dùng liên kết xác minh trên màn đăng nhập để yêu cầu mã. Nếu gửi email thất bại, kiểm tra cấu hình SMTP rồi thử lại.
 
 ### Preview Premium
+
+Với Content DB từ phiên bản lưu local, dừng bản app cũ rồi chạy `node --env-file=.env migrate-content-media.mjs` trên máy còn tệp gốc. Lệnh tạo bảng trên Content DB, chuyển file và báo số file còn thiếu. Chạy lại được nếu trước đó chuyển chưa xong. Bản app mới đọc tệp qua kết nối Content DB.
 
 Với Content DB đã có dữ liệu, chạy `08_content_preview.sql` trong thư mục `migrations/` trên Neon Content. DB tạo mới từ SQL khởi tạo đã có cột này. Cài FFmpeg hỗ trợ `drawtext` và `libx264` trên máy chạy Content, rồi đưa FFmpeg vào PATH hoặc đặt `PCK_FFMPEG_PATH` bằng đường dẫn tuyệt đối tới executable. Mặc định dùng Arial trong thư mục Fonts của Windows hoặc DejaVu Sans trên Linux. Nếu cần đổi font, đặt `PCK_PREVIEW_FONT_DIR` (thư mục tuyệt đối) và `PCK_PREVIEW_FONT_FILE` (tên file font).
 

@@ -7,19 +7,16 @@ import { commerce } from "./commerce-client.mjs";
 import { catalog, sendMedia } from "./content-discovery.mjs";
 import {
   uuid,
-  localKey,
   mediaUrl,
-  uploads,
   postFields,
   coverColumns,
   withDb,
   query,
   problem,
-  removeLocalAssets,
   hasEntitlement,
   postById,
   hasFull,
-  localAssetAvailable,
+  originalExists,
   postMedia,
   withCoverKind,
 } from "./content-shared.mjs";
@@ -27,7 +24,6 @@ export {
   withDb,
   query,
   problem,
-  removeLocalAssets,
 } from "./content-shared.mjs";
 
 async function publish(id, caller) {
@@ -45,7 +41,7 @@ async function publish(id, caller) {
         throw problem(409, "Bài này không thể phát hành.");
       if (post.status === "DRAFT") {
         const { rows } = await client.query(
-          "SELECT original_key,purpose FROM public.assets WHERE post_id=$1 AND status='READY'",
+          `SELECT purpose,${originalExists} AS available FROM public.assets a WHERE post_id=$1 AND status='READY'`,
           [id],
         );
         if (
@@ -58,13 +54,7 @@ async function publish(id, caller) {
             "Bài cần tệp đầy đủ sẵn sàng. Bài Premium còn cần một tệp đại diện công khai.",
           );
         }
-        if (
-          !(
-            await Promise.all(
-              rows.map((file) => localAssetAvailable(file.original_key)),
-            )
-          ).every(Boolean)
-        ) {
+        if (rows.some((file) => !file.available)) {
           throw problem(409, "Một hoặc nhiều tệp gốc hiện không khả dụng.");
         }
         await client.query(
@@ -176,8 +166,8 @@ async function library(kind, caller) {
           "/purchases?" + new URLSearchParams({ buyerId: caller.id }),
         );
   if (!rows.length) return [];
-  const files = purchased ? `, ARRAY(SELECT a.original_key FROM public.assets a
-    WHERE a.post_id=p.id AND a.status='READY' AND a.purpose='FULL') AS premium_keys` : "";
+  const files = purchased ? `, ARRAY(SELECT ${originalExists} FROM public.assets a
+    WHERE a.post_id=p.id AND a.status='READY' AND a.purpose='FULL') AS premium_available` : "";
   const posts = await query(
     "CONTENT",
     withCoverKind(`SELECT ${postFields}, ${coverColumns}${files} FROM public.posts p
@@ -192,17 +182,17 @@ async function library(kind, caller) {
         unavailable: true,
   });
   if (!purchased) return rows.map((row) => byId.get(row.post_id) || fallback(row));
-  return Promise.all(rows.map(async (row) => {
-    const { premium_keys: keys = [], ...post } = byId.get(row.post_id) || fallback(row);
+  return rows.map((row) => {
+    const { premium_available: files = [], ...post } = byId.get(row.post_id) || fallback(row);
     const canOpen = post.moderation_state !== "TAKEN_DOWN" &&
       (post.status === "PUBLISHED" || Boolean(post.withdrawn_at) || post.moderation_state === "TEMP_HIDDEN");
-    const ready = canOpen ? (await Promise.all(keys.map(localAssetAvailable))).filter(Boolean).length : 0;
-    const downloadState = ready === 0 ? "UNAVAILABLE" : ready < keys.length ? "PARTIAL" : "READY";
+    const ready = canOpen ? files.filter(Boolean).length : 0;
+    const downloadState = ready === 0 ? "UNAVAILABLE" : ready < files.length ? "PARTIAL" : "READY";
     return { ...post, purchase: {
       orderId: row.order_id, purchasedAt: row.purchased_at, amountVnd: row.amount_vnd,
       downloadState, canOpen,
     } };
-  }));
+  });
 }
 
 export async function setPostGenre(client, id, genreId) {
@@ -252,8 +242,8 @@ async function managePost(id, caller, method, input) {
             "Trạng thái bài đã đổi. Tải lại trước khi xóa hoặc gỡ.",
           );
         if (post.status === "DRAFT") {
-          const { rows } = await client.query(
-            "DELETE FROM public.assets WHERE post_id=$1 RETURNING original_key,preview_key",
+          await client.query(
+            "DELETE FROM public.assets WHERE post_id=$1",
             [id],
           );
           await client.query(
@@ -262,10 +252,7 @@ async function managePost(id, caller, method, input) {
           );
           await client.query("DELETE FROM public.posts WHERE id=$1", [id]);
           await client.query("COMMIT");
-          return {
-            status: "DELETED",
-            keys: rows.flatMap((row) => [row.original_key, row.preview_key]),
-          };
+          return { status: "DELETED" };
         }
         if (
           post.status !== "PUBLISHED" &&
@@ -292,7 +279,7 @@ async function managePost(id, caller, method, input) {
           [id],
         );
         const { rows: assets } = await client.query(
-          `SELECT a.id,a.filename,a.original_key,a.size_bytes,a.position,a.purpose,a.preview_start_seconds,f.kind
+          `SELECT a.id,a.filename,a.size_bytes,a.position,a.purpose,a.preview_start_seconds,f.kind,${originalExists} AS available
           FROM public.assets a JOIN public.asset_formats f ON f.id=a.format_id
           WHERE a.post_id=$1 AND a.status='READY' ORDER BY a.position`,
           [id],
@@ -308,7 +295,7 @@ async function managePost(id, caller, method, input) {
             kind: a.kind,
             previewStart: a.preview_start_seconds,
             premium: Number(post.price_vnd) > 0 && a.purpose === "FULL",
-            url: localKey.test(a.original_key) ? mediaUrl(a.id) : null,
+            url: a.available ? mediaUrl(a.id) : null,
           })),
         };
       }
@@ -368,7 +355,6 @@ async function managePost(id, caller, method, input) {
       throw error;
     }
   });
-  if (result.keys) await removeLocalAssets(result.keys);
   const { keys, ...response } = result;
   return response;
 }

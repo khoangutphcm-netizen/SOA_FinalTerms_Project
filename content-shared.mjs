@@ -1,13 +1,9 @@
 import { commerce } from "./commerce-client.mjs";
-import { constants } from "node:fs";
-import { access, stat, unlink } from "node:fs/promises";
 import { connect } from "./demo-accounts.mjs";
 
 export const uuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-export const localKey = /^local-demo\/([0-9a-f-]{36}\.(?:jpg|jpeg|png|mp4))$/i;
 export const mediaUrl = (id) => "/api/demo/media/" + id;
-export const uploads = new URL("./.pck-demo/uploads/", import.meta.url);
 export const postFields =
   "p.id, p.author_id, p.title, p.description, p.price_vnd, p.auto_cycle, p.status, p.withdrawn_at, p.moderation_state, p.published_at, p.view_count, p.created_at";
 
@@ -28,19 +24,6 @@ export function query(name, sql, params = []) {
 
 export function problem(status, message) {
   return Object.assign(new Error(message), { status });
-}
-
-export async function removeLocalAssets(keys) {
-  await Promise.all(
-    keys.map(async (key) => {
-      const file = key?.match(localKey)?.[1];
-      if (file) {
-        await Promise.all([file, file + ".thumb-v1.jpg"].map(name =>
-          unlink(new URL(name, uploads)).catch(() => {}),
-        ));
-      }
-    }),
-  );
 }
 
 export async function hasEntitlement(postId, caller) {
@@ -88,46 +71,33 @@ export async function hasFull(post, caller) {
   return hasEntitlement(post.id, caller);
 }
 
-export async function localAssetAvailable(key) {
-  const name = key?.match(localKey)?.[1];
-  if (!name) return false;
-  const file = new URL(name, uploads);
-  try {
-    if (!(await stat(file)).isFile()) return false;
-    await access(file, constants.R_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
+// Used only in SQL where a is the assets table alias.
+export const originalExists = `EXISTS (SELECT 1 FROM public.asset_blobs b WHERE b.asset_id=a.id AND b.variant='ORIGINAL' AND b.object_key=a.original_key)`;
 
 export async function postMedia(post, caller) {
   const rows = await query(
     "CONTENT",
-    `SELECT a.id, a.filename, a.original_key, a.preview_key, a.purpose, f.mime_type, f.kind
+    `SELECT a.id, a.filename, a.purpose, f.mime_type, f.kind, ${originalExists} AS "originalAvailable",
+      EXISTS (SELECT 1 FROM public.asset_blobs b
+        WHERE b.asset_id=a.id AND b.variant='PREVIEW' AND b.object_key=a.preview_key) AS "previewAvailable"
     FROM public.assets a JOIN public.asset_formats f ON f.id=a.format_id
     WHERE a.post_id=$1 AND a.status='READY' ORDER BY a.position`,
     [post.id],
   );
   const full = await hasFull(post, caller);
-  return Promise.all(
-    rows.map(
-      async ({
+  return rows.map(
+      ({
         id,
         filename,
-        original_key,
-        preview_key,
+        originalAvailable,
+        previewAvailable,
         purpose,
         mime_type,
         kind,
       }) => {
         const locked = !full && purpose !== "PROMO";
         const premium = Number(post.price_vnd) > 0 && purpose === "FULL";
-        const [originalAvailable, previewAvailable] = await Promise.all([
-          localAssetAvailable(original_key),
-          (locked || (premium && kind === "VIDEO")) && localAssetAvailable(preview_key),
-        ]);
-        const previewSource = previewAvailable ? "/api/demo/preview/" + id : null;
+        const previewSource = previewAvailable && (locked || (premium && kind === "VIDEO")) ? "/api/demo/preview/" + id : null;
         return {
           id,
           filename,
@@ -142,14 +112,13 @@ export async function postMedia(post, caller) {
           url: originalAvailable && !locked ? mediaUrl(id) : null,
         };
       },
-    ),
   );
 }
 
 export const coverColumns = `(
   SELECT a.id FROM public.assets a JOIN public.asset_formats f ON f.id=a.format_id
   WHERE a.post_id=p.id AND a.status='READY' AND (p.price_vnd=0 OR a.purpose='PROMO')
-    AND f.kind IN ('IMAGE','VIDEO') AND a.original_key LIKE 'local-demo/%'
+    AND f.kind IN ('IMAGE','VIDEO') AND ${originalExists}
   ORDER BY a.position LIMIT 1
 ) AS cover_id, ARRAY(
   SELECT DISTINCT f.kind FROM public.assets a JOIN public.asset_formats f ON f.id=a.format_id

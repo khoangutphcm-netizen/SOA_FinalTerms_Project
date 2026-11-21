@@ -1,5 +1,5 @@
 import { commerce } from "./commerce-client.mjs";
-import { withDb, problem, localAssetAvailable } from "./content-shared.mjs";
+import { withDb, problem, originalExists } from "./content-shared.mjs";
 export async function testPurchase(id, caller, expectedPrice) {
   return withDb("CONTENT", async (content) => {
     await content.query("BEGIN");
@@ -16,16 +16,12 @@ export async function testPurchase(id, caller, expectedPrice) {
       if (expectedPrice !== Number(post.price_vnd))
         throw problem(409, "Giá đã thay đổi. Tải lại bài để xác nhận.");
       const { rows: files } = await content.query(
-        "SELECT original_key FROM public.assets WHERE post_id=$1 AND purpose='FULL' AND status='READY'",
+        `SELECT ${originalExists} AS available FROM public.assets a WHERE a.post_id=$1 AND a.purpose='FULL' AND a.status='READY'`,
         [id],
       );
       if (
         !files.length ||
-        !(
-          await Promise.all(
-            files.map((file) => localAssetAvailable(file.original_key)),
-          )
-        ).every(Boolean)
+        !files.every((file) => file.available)
       ) {
         throw problem(
           409,
