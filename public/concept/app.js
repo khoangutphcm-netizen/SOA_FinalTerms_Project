@@ -883,6 +883,7 @@ async function render({ selectedMediaId } = {}) {
           button,
         },
         id,
+        new URLSearchParams(rawQuery),
       ),
     collections: async () =>
       heading(
@@ -1009,7 +1010,7 @@ for (const eventName of ["playing", "pause", "ended"]) {
   );
 }
 app.addEventListener("click", async (event) => {
-  const pickerClose = event.target.closest("[data-collection-close]");
+  const pickerClose = event.target.closest("[data-collection-close], [data-admin-credit-close]");
   if (pickerClose) {
     pickerClose.closest("dialog").close();
     return;
@@ -1206,6 +1207,27 @@ app.addEventListener("click", async (event) => {
       },
       control,
     );
+  if (action === "admin-edit-money") {
+    const row = control.closest("tr");
+    const name = row.querySelector("[data-account-alias]").textContent;
+    const email = row.querySelector("[data-account-email]").textContent;
+    const dialog = document.createElement("dialog");
+    dialog.className = "surface collection-picker admin-credit-dialog";
+    dialog.setAttribute("aria-labelledby", "admin-credit-title");
+    dialog.innerHTML = `<header><h2 id="admin-credit-title">Edit money</h2></header>
+      <p>Tài khoản nhận <strong>${esc(name)}</strong><br><span class="muted">${esc(email)}</span></p>
+      <p>Số dư hiện tại <strong>${money(next)}</strong></p>
+      <form id="admin-credit-form" data-id="${esc(id)}" data-balance="${esc(next)}">
+        <label>Số dư mới (₫)<input name="balance" type="number" value="${esc(next)}" min="0" max="1000000000" step="1" required autofocus></label>
+        <div class="button-row"><button type="submit" class="btn dark">Lưu số dư</button>
+          <button type="button" class="btn light" data-admin-credit-close>Hủy</button></div>
+        <p class="muted" role="status"></p>
+      </form>`;
+    app.append(dialog);
+    dialog.addEventListener("close", () => dialog.remove(), { once: true });
+    dialog.showModal();
+    return;
+  }
   control.disabled = true;
   try {
     if (action === "logout") {
@@ -1263,6 +1285,15 @@ app.addEventListener("click", async (event) => {
       }
       await json(action + "/" + id, "PUT", { action: next, reason });
       notice("Đã cập nhật kiểm duyệt.");
+    } else if (action === "admin-account-status") {
+      const disabled = next === "disable";
+      if (disabled && !window.confirm("Khóa tài khoản này và kết thúc các phiên đang đăng nhập?")) {
+        control.disabled = false;
+        return;
+      }
+      await json("admin-accounts/" + encodeURIComponent(id), "PUT", { disabled });
+      if (!control.isConnected) return;
+      notice(disabled ? "Đã khóa tài khoản." : "Đã mở khóa tài khoản.");
     } else if (action.startsWith("admin-")) {
       await json(
         action + "/" + id,
@@ -1340,7 +1371,7 @@ app.addEventListener("drop", (event) => {
   addUploadFiles(zone.closest("form"), [...event.dataTransfer.files]);
 });
 app.addEventListener("error", (event) => {
-  if (event.target.matches?.(".purchase-cover img")) {
+  if (event.target.matches?.(".purchase-cover img, .admin-post-preview img")) {
     event.target.hidden = true;
     return;
   }
@@ -1393,6 +1424,14 @@ app.addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.target,
     data = new FormData(form);
+  if (form.id === "admin-accounts-search") {
+    const params = new URLSearchParams();
+    for (const [name, value] of data) {
+      if (value.trim()) params.set(name, value.trim());
+    }
+    go("admin/accounts" + (params.size ? "?" + params : ""));
+    return;
+  }
   if (form.id === "own-post-search") {
     searchOwnPosts(form.elements.q, 0);
     return;
@@ -1474,6 +1513,31 @@ app.addEventListener("submit", async (event) => {
       if (user?.id !== userId) return;
       user = { ...user, ...profile };
       notice("Đã lưu hồ sơ.");
+      render();
+    } else if (form.id === "admin-credit-form") {
+      const balance = Number(data.get("balance"));
+      const expectedBalance = Number(form.dataset.balance);
+      const targetId = form.dataset.id;
+      const key = `pck-admin-balance-${user.id}-${targetId}-${expectedBalance}-${balance}`;
+      let result;
+      try {
+        result = await json("admin-accounts/" + encodeURIComponent(targetId) + "/balance", "POST", {
+          balance, expectedBalance, requestId: topupRequestId(key),
+        });
+      } catch (error) {
+        if (error.status >= 400 && error.status < 500 && error.status !== 408) topupRequestId(key, true);
+        if (error.status === 409 && form.isConnected) {
+          form.closest("dialog").close();
+          notice(error.message);
+          render();
+          return;
+        }
+        throw error;
+      }
+      topupRequestId(key, true);
+      if (!form.isConnected) return;
+      form.closest("dialog").close();
+      notice(`Số dư demo hiện tại là ${money(result.balanceVnd)}.`);
       render();
     } else if (form.id === "wallet-topup-form") {
       const amount = Number(data.get("amount"));

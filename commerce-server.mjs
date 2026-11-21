@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { connect } from "./demo-accounts.mjs";
-import { debitWallet, topUpAmounts, topUpWallet, walletSummary } from "./commerce-wallet.mjs";
+import { changeWallet, debitWallet, topUpAmounts, walletSummary } from "./commerce-wallet.mjs";
 
 const token = process.env.PCK_INTERNAL_TOKEN;
 if (!token) throw new Error("PCK_INTERNAL_TOKEN is required");
@@ -131,6 +131,12 @@ const server = createServer(async (req, res) => {
         );
         return send(res, 200, result);
       }
+      if (pathname === "/admin/sales") {
+        return send(res, 200, await rows(
+          `SELECT post_id,count(*)::int AS "paidCount",sum(amount_vnd)::text AS "revenueVnd"
+           FROM public.orders WHERE status='PAID' GROUP BY post_id`,
+        ));
+      }
       const buyerId = searchParams.get("buyerId");
       const postId = searchParams.get("postId");
       if (pathname === "/wallet" && uuid.test(buyerId)) {
@@ -162,6 +168,27 @@ const server = createServer(async (req, res) => {
         return send(res, 200, { allowed: rights.length > 0 });
       }
     }
+    if (req.method === "POST" && pathname === "/admin/wallet-balances") {
+      const { userIds } = (await readBody(req)) ?? {};
+      if (!Array.isArray(userIds) || userIds.length > 25 ||
+          userIds.some(id => typeof id !== "string" || !uuid.test(id)))
+        throw problem(400, "Danh sách tài khoản không hợp lệ.");
+      return send(res, 200, await rows(
+        'SELECT user_id AS "userId",balance_vnd::int AS "balanceVnd" FROM public.wallets WHERE user_id=ANY($1::uuid[])',
+        [userIds],
+      ));
+    }
+    if (req.method === "POST" && pathname === "/admin/wallet-balance") {
+      const { buyerId, balance, expectedBalance, requestId, actorId } = (await readBody(req)) ?? {};
+      if (![buyerId, requestId, actorId].every(id => typeof id === "string" && uuid.test(id)) ||
+          ![balance, expectedBalance].every(value => Number.isSafeInteger(value) && value >= 0 && value <= 1000000000))
+        throw problem(400, "Nhập số dư demo từ 0 đến 1.000.000.000 ₫.");
+      return send(res, 200, await withCommerceDb((client) =>
+        changeWallet(client, buyerId.toLowerCase(), balance - expectedBalance, requestId.toLowerCase(), {
+          actorId: actorId.toLowerCase(), expectedBalance,
+        }),
+      ));
+    }
     if (req.method === "POST" && pathname === "/wallet/top-up") {
       const { buyerId, amount, requestId } = (await readBody(req)) ?? {};
       if (typeof buyerId !== "string" || !uuid.test(buyerId) ||
@@ -169,7 +196,7 @@ const server = createServer(async (req, res) => {
         throw problem(400, "Chọn một mức nạp thử hợp lệ.");
       }
       return send(res, 200, await withCommerceDb((client) =>
-        topUpWallet(client, buyerId, amount, requestId),
+        changeWallet(client, buyerId, amount, requestId),
       ));
     }
     if (req.method === "POST" && pathname === "/test-purchase") {

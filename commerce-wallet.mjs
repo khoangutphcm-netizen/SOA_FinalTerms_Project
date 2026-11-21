@@ -15,7 +15,8 @@ export async function walletSummary(client, userId, includeHistory) {
   return { balanceVnd: Number(wallet?.balance_vnd ?? 0), history: wallet?.history ?? [] };
 }
 
-export async function topUpWallet(client, userId, amount, requestId) {
+export async function changeWallet(client, userId, amount, requestId, { actorId = null, expectedBalance } = {}) {
+  const kind = actorId ? (amount < 0 ? "ADMIN_DEBIT" : "ADMIN_CREDIT") : "TOP_UP";
   await client.query("BEGIN");
   try {
     await client.query("INSERT INTO public.wallets (user_id) VALUES ($1) ON CONFLICT DO NOTHING", [userId]);
@@ -23,18 +24,22 @@ export async function topUpWallet(client, userId, amount, requestId) {
       "SELECT balance_vnd FROM public.wallets WHERE user_id=$1 FOR UPDATE", [userId],
     );
     const { rows: [existing] } = await client.query(
-      "SELECT amount_vnd FROM public.wallet_entries WHERE user_id=$1 AND request_id=$2", [userId, requestId],
+      "SELECT amount_vnd, kind, actor_id, balance_after_vnd FROM public.wallet_entries WHERE user_id=$1 AND request_id=$2", [userId, requestId],
     );
-    if (existing && Number(existing.amount_vnd) !== amount) {
-      throw problem(409, "Yêu cầu nạp thử đã được dùng với số tiền khác.");
+    if (existing && (Number(existing.amount_vnd) !== amount || existing.kind !== kind || existing.actor_id !== actorId ||
+        (actorId && Number(existing.balance_after_vnd) !== expectedBalance + amount))) {
+      throw problem(409, "Mã giao dịch đã được dùng cho một yêu cầu khác.");
     }
-    const balanceVnd = Number(wallet.balance_vnd) + (existing ? 0 : amount);
-    if (!existing) {
-      if (balanceVnd > 1000000000) throw problem(409, "Đã đạt giới hạn số dư demo.");
+    const current = Number(wallet.balance_vnd);
+    if (!existing && actorId && current !== expectedBalance)
+      throw problem(409, "Số dư đã thay đổi. Hãy kiểm tra số dư mới rồi chỉnh lại.");
+    const balanceVnd = current + (existing ? 0 : amount);
+    if (!existing && amount !== 0) {
+      if (balanceVnd < 0 || balanceVnd > 1000000000) throw problem(409, "Số dư demo phải từ 0 đến 1.000.000.000 ₫.");
       await client.query("UPDATE public.wallets SET balance_vnd=$2 WHERE user_id=$1", [userId, balanceVnd]);
       await client.query(
-        `INSERT INTO public.wallet_entries (user_id,kind,amount_vnd,balance_after_vnd,request_id)
-          VALUES ($1,'TOP_UP',$2,$3,$4)`, [userId, amount, balanceVnd, requestId],
+        `INSERT INTO public.wallet_entries (user_id,kind,amount_vnd,balance_after_vnd,request_id,actor_id)
+          VALUES ($1,$2,$3,$4,$5,$6)`, [userId, kind, amount, balanceVnd, requestId, actorId],
       );
     }
     await client.query("COMMIT");

@@ -1,7 +1,7 @@
 import { callService } from "./internal-services.mjs";
 import { testPurchase } from "./content-purchase.mjs";
 import { groups, createCollection, myCollections, renameCollection, changeCollectionItem } from "./content-collections.mjs";
-import { adminDashboard, saveEvent } from "./content-admin.mjs";
+import { adminDashboard, adminPosts, saveEvent } from "./content-admin.mjs";
 import { moderatePost } from "./content-moderation.mjs";
 import { commerce } from "./commerce-client.mjs";
 import { catalog, sendMedia } from "./content-discovery.mjs";
@@ -434,6 +434,10 @@ export async function handleCatalog(req, res, path, send, caller, readJson) {
     if (path === "/api/demo/admin" && req.method === "GET") {
       requireAdmin();
       return send(res, 200, await adminDashboard());
+    }
+    if (path === "/api/demo/admin-posts" && req.method === "GET") {
+      requireAdmin();
+      return send(res, 200, await adminPosts(Number(search.get("page"))));
     }
     if (path === "/api/demo/admin-events" && req.method === "POST") {
       requireAdmin();

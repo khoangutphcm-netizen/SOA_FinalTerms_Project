@@ -54,7 +54,7 @@ Các lệnh dưới đây dùng PowerShell tại thư mục dự án.
    node --env-file=.env migrate-gallery.mjs
    ```
 
-   `migrate.mjs` hiện có lỗi nhận dạng SQL như ghi ở phần việc cần làm. Với DB đã có dữ liệu, áp dụng riêng các migration còn thiếu. Chạy [10_identity_profile.sql](migrations/10_identity_profile.sql) trên Identity và [11_commerce_wallet.sql](migrations/11_commerce_wallet.sql) trên Commerce. Content có các migration riêng cho [kiểm duyệt](migrations/07_content_moderation.sql) và [preview](migrations/08_content_preview.sql).
+   `migrate.mjs` hiện có lỗi nhận dạng SQL như ghi ở phần việc cần làm. Với DB đã có dữ liệu, áp dụng riêng các migration còn thiếu. Chạy [10_identity_profile.sql](migrations/10_identity_profile.sql) trên Identity, rồi [11_commerce_wallet.sql](migrations/11_commerce_wallet.sql) và [13_commerce_admin_credit.sql](migrations/13_commerce_admin_credit.sql) theo thứ tự trên Commerce. Content có các migration riêng cho [kiểm duyệt](migrations/07_content_moderation.sql) và [preview](migrations/08_content_preview.sql).
 
 4. Cài FFmpeg nếu cần tạo preview Premium, theo phần bên dưới. Nếu cần tài khoản admin demo trên DB riêng, chạy `node --env-file=.env seed-demo.mjs` rồi lấy thông tin tại `.pck-demo/accounts.json`.
 

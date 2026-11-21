@@ -55,9 +55,11 @@ export const profileHandlers = {
     if (!profile) throw problem(404, "Không tìm thấy hồ sơ.");
     return profile;
   },
-  async avatar(query, { userId }) {
+  async avatar(query, { userId, actorId = null }) {
     const [row] = await query(
-      "SELECT avatar_jpeg FROM public.users WHERE id=$1 AND status='ACTIVE'", [userId],
+      `SELECT avatar_jpeg FROM public.users WHERE id=$1 AND (
+         status='ACTIVE' OR EXISTS (SELECT 1 FROM public.users WHERE id=$2 AND role='ADMIN' AND status='ACTIVE')
+       )`, [userId, actorId],
     );
     if (!row?.avatar_jpeg) throw problem(404, "Chưa có ảnh đại diện.");
     return { jpeg: row.avatar_jpeg.toString("base64") };

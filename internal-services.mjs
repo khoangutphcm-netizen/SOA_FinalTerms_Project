@@ -3,6 +3,7 @@ import { connect } from "./demo-accounts.mjs";
 import { identity } from "./identity-handlers.mjs";
 import { community } from "./community-handlers.mjs";
 import { profileHandlers } from "./identity-profile.mjs";
+import { accountAdmin } from "./identity-admin.mjs";
 
 export { identity } from "./identity-handlers.mjs";
 
@@ -53,7 +54,7 @@ export function startDataService(service) {
       await query("SELECT 1");
       return { status: "ok", message: service + " đã kết nối PostgreSQL." };
     },
-    ...{ IDENTITY: { ...identity, ...profileHandlers }, COMMUNITY: community }[service],
+    ...{ IDENTITY: { ...identity, ...profileHandlers, ...accountAdmin }, COMMUNITY: community }[service],
   };
   const token = process.env.PCK_INTERNAL_TOKEN;
   if (!token) throw new Error("PCK_INTERNAL_TOKEN is required");

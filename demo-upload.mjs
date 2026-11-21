@@ -3,6 +3,8 @@ import { connect } from "./demo-accounts.mjs";
 import { callService } from "./internal-services.mjs";
 import { makePreview } from "./media-preview.mjs";
 import { originalExists } from "./content-shared.mjs";
+import { adminAccountMetrics } from "./content-admin.mjs";
+import { commerce } from "./commerce-client.mjs";
 import {
   handleCatalog,
   problem,
@@ -10,10 +12,17 @@ import {
 } from "./demo-catalog.mjs";
 
 const sessions = new Map();
+const signInsInProgress = new Set();
 const hour = 60 * 60 * 1000;
 const maxFile = 10 * 1024 * 1024;
 const maxTotal = 40 * 1024 * 1024;
 const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+
+function revokeAccountSessions(id) {
+  for (const [token, session] of sessions)
+    if (session.id === id) sessions.delete(token);
+  for (const revoked of signInsInProgress) revoked.add(id);
+}
 const signatures = {
   jpg: [
     "image/jpeg",
@@ -222,11 +231,13 @@ export async function handleDemo(req, res, path, send) {
     const userId = path.slice("/api/demo/avatar/".length);
     if (!uuid.test(userId)) return send(res, 404, { message: "Không tìm thấy ảnh đại diện." });
     try {
-      const { jpeg } = await callService("IDENTITY", "avatar", { userId });
+      const actorId = active?.role === "ADMIN" ? active.id : null;
+      const { jpeg } = await callService("IDENTITY", "avatar", { userId, actorId });
       const image = Buffer.from(jpeg, "base64");
       res.writeHead(200, {
         "Content-Type": "image/jpeg", "Content-Length": image.length,
-        "Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff",
+        "Cache-Control": actorId ? "private, no-store" : "private, max-age=300",
+        "X-Content-Type-Options": "nosniff",
       }).end(image);
     } catch (error) {
       return send(res, error.status || 503, { message: "Không tải được ảnh đại diện." });
@@ -238,8 +249,16 @@ export async function handleDemo(req, res, path, send) {
     : null;
   if (draftId && !uuid.test(draftId))
     return send(res, 404, { message: "Không tìm thấy bản nháp." });
+  const accountsPath = "/api/demo/admin-accounts";
+  const accountPath = path.startsWith(accountsPath + "/") ? path.slice(accountsPath.length + 1) : null;
+  const walletEdit = accountPath?.endsWith("/balance");
+  const accountId = walletEdit ? accountPath.slice(0, -"/balance".length) : accountPath;
+  const managesAccounts = path === accountsPath || accountId !== null;
+  if (managesAccounts && active?.role !== "ADMIN")
+    return send(res, 403, { message: "Chỉ tài khoản admin được thực hiện." });
   const method = draftId
     ? "PUT"
+    : managesAccounts ? (accountId === null ? "GET" : walletEdit ? "POST" : "PUT")
     : {
         "/api/demo/session": "GET",
         "/api/demo/profile": req.method === "PUT" ? "PUT" : "GET",
@@ -265,6 +284,45 @@ export async function handleDemo(req, res, path, send) {
       res.setHeader("Set-Cookie", cookieName + "=" + cookieSettings + "0");
       return send(res, 200, { user: null });
     }
+    if (managesAccounts) {
+      if (accountId === null) {
+        const search = new URL(req.url, "http://localhost").searchParams;
+        const result = await callService("IDENTITY", "admin-accounts", {
+          actorId: active.id,
+          q: search.get("q")?.slice(0, 100),
+          status: search.get("status"),
+          role: search.get("role"),
+          page: Number(search.get("page")),
+        });
+        return send(res, 200, await adminAccountMetrics(result));
+      }
+      const input = await readJson(req);
+      if (walletEdit) {
+        if (!uuid.test(accountId) ||
+            ![input?.balance, input?.expectedBalance].every(value => Number.isSafeInteger(value) && value >= 0 && value <= 1000000000) ||
+            typeof input.requestId !== "string" || !uuid.test(input.requestId))
+          return send(res, 400, { message: "Nhập số dư demo hợp lệ." });
+        const { id } = await callService("IDENTITY", "admin-wallet-recipient", { actorId: active.id, accountId });
+        const result = await commerce("/admin/wallet-balance", {
+          buyerId: id, actorId: active.id, balance: input.balance, expectedBalance: input.expectedBalance, requestId: input.requestId,
+        });
+        return send(res, 200, result);
+      }
+      if (!uuid.test(accountId) || typeof input?.disabled !== "boolean")
+        return send(res, 400, { message: "Tài khoản hoặc thao tác không hợp lệ." });
+      const id = accountId.toLowerCase();
+      try {
+        const account = await callService("IDENTITY", "admin-account-status", {
+          actorId: active.id, accountId: id, disabled: input.disabled,
+        });
+        if (input.disabled) revokeAccountSessions(id);
+        return send(res, 200, account);
+      } catch (error) {
+        // A missing Identity response may arrive after it committed the status change.
+        if (input.disabled && error.status >= 500) revokeAccountSessions(id);
+        throw error;
+      }
+    }
     if (
       [
         "/api/demo/login",
@@ -280,12 +338,21 @@ export async function handleDemo(req, res, path, send) {
         login = JSON.parse(bytes.toString("utf8"));
       } catch {}
       const operation = path.split("/").at(-1);
-      const user = await callService("IDENTITY", operation, login ?? {}, {
-        timeoutMs:
-          operation === "register" || operation === "resend" ? 60000 : 25000,
-      });
-      if (operation !== "login") return send(res, 200, user);
-      if (!user)
+      if (operation !== "login") {
+        const result = await callService("IDENTITY", operation, login ?? {}, {
+          timeoutMs: operation === "register" || operation === "resend" ? 60000 : 25000,
+        });
+        return send(res, 200, result);
+      }
+      const revoked = new Set();
+      signInsInProgress.add(revoked);
+      let user;
+      try {
+        user = await callService("IDENTITY", "login", login ?? {});
+      } finally {
+        signInsInProgress.delete(revoked);
+      }
+      if (!user || revoked.has(user.id))
         return send(res, 401, {
           message: "Tài khoản hoặc mật khẩu không đúng.",
         });
