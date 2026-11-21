@@ -1,5 +1,8 @@
-export const money = (value) => (typeof value === "string" && /^-?\d+$/.test(value)
-  ? BigInt(value) : Number(value)).toLocaleString("vi-VN") + " ₫";
+export const money = (value) =>
+  (typeof value === "string" && /^-?\d+$/.test(value)
+    ? BigInt(value)
+    : Number(value)
+  ).toLocaleString("vi-VN") + " ₫";
 const date = (value) =>
   value
     ? new Date(value).toLocaleString("vi-VN", {
@@ -70,10 +73,16 @@ export async function avatarPayload(file) {
 
 export function walletPage(wallet, esc, returnPost, stripeStatus) {
   const { min, max } = wallet.topUpLimits ?? { min: 20000, max: 1000000 };
-  const ledger = wallet.history.map(entry => {
-    const label = { TOP_UP: "Nạp thử", ADMIN_CREDIT: "Admin cộng tiền", ADMIN_DEBIT: "Admin giảm số dư", PURCHASE: "Mua tác phẩm" }[entry.kind];
-    const credit = Number(entry.amount_vnd) > 0;
-    return `<li><div><strong>${esc(label)}</strong><span>${esc(date(entry.created_at))}</span></div>
+  const ledger = wallet.history
+    .map((entry) => {
+      const label = {
+        TOP_UP: "Nạp thử",
+        ADMIN_CREDIT: "Admin cộng tiền",
+        ADMIN_DEBIT: "Admin giảm số dư",
+        PURCHASE: "Mua tác phẩm",
+      }[entry.kind];
+      const credit = Number(entry.amount_vnd) > 0;
+      return `<li><div><strong>${esc(label)}</strong><span>${esc(date(entry.created_at))}</span></div>
       <div><strong class="${credit ? "wallet-credit" : ""}">${credit ? "+" : "−"}${money(Math.abs(Number(entry.amount_vnd)))}</strong>
       <span>Còn ${money(entry.balance_after_vnd)}</span></div></li>`;
     })

@@ -25,8 +25,17 @@ export async function commerce(path, body, { timeoutMs = 12000 } = {}) {
   }
   if (!response.ok) {
     const clientError = response.status >= 400 && response.status < 500;
+    const configurationErrors = new Set([
+      "Chưa cấu hình Stripe test secret key.",
+      "Chưa cấu hình Stripe webhook secret.",
+      "PCK_PUBLIC_URL không hợp lệ.",
+      "PCK_PUBLIC_URL phải dùng HTTPS hoặc localhost.",
+    ]);
+    const message = clientError || configurationErrors.has(data.message)
+      ? data.message
+      : "Commerce tạm thời không khả dụng.";
     throw Object.assign(
-      new Error(clientError ? data.message : "Commerce tạm thời không khả dụng."),
+      new Error(message),
       {
         status: clientError ? response.status : 503,
       },

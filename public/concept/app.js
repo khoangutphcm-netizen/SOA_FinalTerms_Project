@@ -3,6 +3,10 @@ import { discover } from "./discover.js";
 import { welcome, authForm, verifyForm } from "./auth.js";
 import { admin } from "./admin.js";
 import { handlePurchase } from "./purchase.js";
+import { createCollectionBuilder } from "./collection-builder.js";
+import { createCollectionPages } from "./collection-pages.js";
+import { setupTheme } from "./theme.js";
+import { galleryFrame as renderGalleryFrame, galleryStrip as renderGalleryStrip } from "./gallery.js";
 import {
   avatar,
   avatarPayload,
@@ -188,13 +192,19 @@ const grid = (posts, msg = "Chưa có tác phẩm nào.", options) =>
     ? `<div class="grid">${posts.map((post) => card(post, options)).join("")}</div>`
     : empty(msg);
 function collectionCover(group) {
-  const covers = (group.cover_ids ?? (group.cover_id ? [group.cover_id] : [])).slice(0, 3);
-  return `<div class="visual real-cover collection-cover">${covers.length
-    ? `<div class="collection-cover-panes">${covers.map(id => {
-        const source = "/api/demo/media/" + encodeURIComponent(id);
-        return `<span class="collection-cover-pane"><img src="${source}?thumbnail=1" data-fallback="${source}" alt="" loading="lazy"></span>`;
-      }).join("")}</div>`
-    : "<span>Chưa có ảnh bìa</span>"}</div>`;
+  const covers = (
+    group.cover_ids ?? (group.cover_id ? [group.cover_id] : [])
+  ).slice(0, 3);
+  return `<div class="visual real-cover collection-cover">${
+    covers.length
+      ? `<div class="collection-cover-panes">${covers
+          .map((id) => {
+            const source = "/api/demo/media/" + encodeURIComponent(id);
+            return `<span class="collection-cover-pane"><img src="${source}?thumbnail=1" data-fallback="${source}" alt="" loading="lazy"></span>`;
+          })
+          .join("")}</div>`
+      : "<span>Chưa có ảnh bìa</span>"
+  }</div>`;
 }
 
 const groupCards = (groups, route) =>
@@ -479,56 +489,8 @@ function publishedEditor({ post, media, genres: assigned }, genres) {
   <button class="btn dark">Lưu thay đổi</button><p role="status" class="muted"></p></form>`
   );
 }
-function galleryFrame(media, i) {
-  if (!media.length) return empty("Chưa có tệp để hiển thị.");
-  const m = media[i];
-  let view = "<span>Tệp hiện không khả dụng</span>";
-  const source = m.url || m.previewUrl;
-  if (source && m.kind === "VIDEO")
-    view = `<video src="${esc(source)}" controls ${m.locked ? 'controlslist="nodownload"' : ""} playsinline preload="metadata"></video>`;
-  else if (source && m.kind === "IMAGE") {
-    const image = `<img src="${esc(source)}" alt="${esc(m.filename)}">`;
-    view = m.locked
-      ? `<div class="premium-preview-photo">${image}<div class="premium-preview-corner"><img src="${esc(source)}" alt="" aria-hidden="true"><span>PCGK Preview</span></div></div>`
-      : image;
-  } else if (m.locked && m.originalAvailable)
-    view = "<strong>Chưa có bản xem trước cho tệp Premium</strong>";
-  const state = !m.originalAvailable
-    ? "Tệp gốc hiện không khả dụng"
-    : m.locked
-      ? m.previewUrl
-        ? "Bản xem trước Premium"
-        : "Tệp Premium chưa mở"
-      : m.premium
-        ? "Premium · Đã mở quyền"
-        : "Tệp công khai";
-  return `<div class="preview media-stage">${view}</div><div class="detail-file"><div><span>Tệp ${i + 1}/${media.length} · ${kindNames[m.kind] || "Tệp"}</span><strong>${esc(m.filename)}</strong><span>${state}</span></div>${m.url ? `<a class="btn dark" href="${esc(m.url)}" download="${esc(m.filename)}">Tải bản gốc</a>` : ""}</div>`;
-}
-
-function galleryStrip(media, selected) {
-  const autoCycle = Boolean(cycleOverrides.get(galleryPost));
-  const cycleButton =
-    media.filter((file) => file.kind === "IMAGE" && file.url).length > 1
-      ? `<button type="button" class="btn light" data-action="cycle" aria-pressed="${autoCycle}">${autoCycle ? "Dừng tự chuyển" : "Tự chuyển ảnh"}</button>`
-      : "";
-  const thumbnails = media
-    .map((file, index) => {
-      const kind = kindNames[file.kind] || "Tệp";
-      const video = file.kind === "VIDEO";
-      const clip = video ? file.clipUrl || file.previewUrl : null;
-      const source = file.previewUrl || clip || file.url;
-      const label = `${kind} ${index + 1}: ${file.filename}${file.locked ? " · Premium" : ""}`;
-      return `<button type="button" class="gallery-thumb" data-media="${index}" ${clip ? `data-clip="${esc(clip)}"` : ""} aria-pressed="${index === selected}" aria-label="${esc(label)}" title="${esc(label)}">
-      <span class="gallery-thumb-empty" aria-hidden="true">${source ? kind : "Chưa có preview"}</span>
-      ${source ? `<img class="gallery-thumb-poster" src="${esc(source + "?thumbnail=1")}" ${file.kind === "IMAGE" ? `data-fallback="${esc(source)}"` : ""} alt="" loading="lazy">` : ""}
-      ${video ? '<span class="gallery-thumb-play" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span>' : ""}
-      ${file.locked ? '<span class="gallery-thumb-tier" aria-hidden="true">Premium</span>' : ""}
-    </button>`;
-    })
-    .join("");
-  return `<div class="gallery-strip-heading"><strong>Tệp trong tác phẩm</strong>${cycleButton}</div>
-    <div class="media-thumbs" role="group" aria-label="Chọn tệp trong tác phẩm">${thumbnails}</div>`;
-}
+const galleryFrame = (media, i) => renderGalleryFrame(media, i, { empty, esc, kindNames });
+const galleryStrip = (media, selected) => renderGalleryStrip(media, selected, { esc, kindNames, autoCycle: Boolean(cycleOverrides.get(galleryPost)) });
 
 const likeButtonText = (liked, count) =>
   `${liked ? "Bỏ thích" : "Thích"} · ${count}`;
@@ -811,220 +773,10 @@ async function account(tab = "profile", returnPost, stripeStatus) {
     content
   );
 }
-function newCollection() {
-  if (!user) return loginRequired("Đăng nhập để tạo bộ sưu tập.");
-  return (
-    heading("Tạo bộ sưu tập") +
-    `<form id="collection-form" class="surface edit-form collection-builder">
-      <label>Tên bộ sưu tập<input name="title" required maxlength="80"></label>
-      <label>Mô tả<textarea name="description" maxlength="240" rows="2"></textarea></label>
-      <fieldset class="collection-builder-picker">
-        <legend>Chọn tác phẩm</legend>
-        <div class="collection-builder-search">
-          <label>Tìm tác phẩm<input data-collection-search type="search" maxlength="100" placeholder="Tìm theo tên, mô tả hoặc thể loại"></label>
-          <p class="muted" data-collection-count aria-live="polite">Đã chọn 0/25</p>
-        </div>
-        <ul class="collection-builder-selected" aria-label="Tác phẩm đã chọn" hidden></ul>
-        <p class="muted" data-collection-results-status aria-live="polite"></p>
-        <div class="collection-builder-grid" data-collection-results></div>
-        <button class="btn light" data-collection-more type="button" hidden>Xem thêm</button>
-      </fieldset>
-      <button class="btn dark" type="submit" disabled>Tạo bộ sưu tập</button><p role="status"></p>
-    </form>`
-  );
-}
+const { newCollection, wireCollectionBuilder } = createCollectionBuilder({ getUser: () => user, loginRequired, heading, esc, kindNames, api });
 
-function wireCollectionBuilder(form) {
-  const pageSize = 25;
-  const maxSelected = 25;
-  const search = form.querySelector("[data-collection-search]");
-  const results = form.querySelector("[data-collection-results]");
-  const feedback = form.querySelector("[data-collection-results-status]");
-  const count = form.querySelector("[data-collection-count]");
-  const selectedList = form.querySelector(".collection-builder-selected");
-  const more = form.querySelector("[data-collection-more]");
-  const submit = form.querySelector("[type=submit]");
-  const selected = new Map();
-  const visible = new Map();
-  let nextOffset = 0;
-  let timer, request;
+const { groupPage, refreshCollectionPicker, openCollectionPicker } = createCollectionPages({ api, heading, link, grid, esc, card, button, empty, app });
 
-  function syncChoices() {
-    for (const checkbox of results.querySelectorAll("[data-collection-choice]")) {
-      checkbox.checked = selected.has(checkbox.value);
-      checkbox.disabled = !checkbox.checked && selected.size >= maxSelected;
-    }
-  }
-
-  function updateSelection() {
-    count.textContent = `Đã chọn ${selected.size}/${maxSelected}`;
-    selectedList.hidden = !selected.size;
-    selectedList.innerHTML = [...selected.values()].map(post => `<li>
-      <input type="hidden" name="posts" value="${esc(post.id)}">
-      <button type="button" data-remove-choice="${esc(post.id)}" aria-label="Bỏ chọn ${esc(post.title)}">
-        <span>${esc(post.title)}</span><span aria-hidden="true">×</span>
-      </button></li>`).join("");
-    syncChoices();
-    submit.disabled = !selected.size;
-  }
-
-  function tile(post) {
-    const media = post.cover_id ? "/api/demo/media/" + encodeURIComponent(post.cover_id) : "";
-    const cover = media && post.cover_kind === "VIDEO" ? media + "?thumbnail=1" : media;
-    const kinds = post.kinds ?? [];
-    const type = kinds.includes("IMAGE") && kinds.includes("VIDEO")
-      ? "Hỗn hợp" : (kindNames[kinds[0]] || kindNames[post.cover_kind] || "");
-    const meta = [type, post.genres?.[0]].filter(Boolean).join(" · ");
-    return `<label class="collection-builder-tile">
-      <span class="collection-builder-preview"><span>${post.cover_kind === "VIDEO" ? "Video" : "Chưa có ảnh xem trước"}</span>
-        ${cover ? `<img src="${esc(cover)}" ${post.cover_kind === "VIDEO" ? `data-video-cover="${esc(media)}"` : ""} alt="" loading="lazy">` : ""}
-      </span>
-      <span class="collection-builder-caption">
-        <input type="checkbox" data-collection-choice value="${esc(post.id)}" aria-label="${esc(post.title)}">
-        <span><strong>${esc(post.title)}</strong>${meta ? `<small>${esc(meta)}</small>` : ""}</span>
-      </span>
-    </label>`;
-  }
-
-  async function load(append = false) {
-    if (!form.isConnected) return;
-    request?.abort();
-    const controller = new AbortController();
-    request = controller;
-    const q = search.value.trim();
-    const offset = append ? nextOffset : 0;
-    more.hidden = true;
-    results.setAttribute("aria-busy", "true");
-    feedback.textContent = q ? "Đang tìm tác phẩm…" : "Đang tải tác phẩm…";
-    try {
-      const { posts } = await api("catalog?" + new URLSearchParams({ q, offset }), { signal: controller.signal });
-      if (!form.isConnected || request !== controller || controller.signal.aborted) return;
-      if (!append) {
-        visible.clear();
-        results.replaceChildren();
-      }
-      const fresh = posts.filter(post => !visible.has(post.id));
-      for (const post of fresh) visible.set(post.id, post);
-      results.insertAdjacentHTML("beforeend", fresh.map(tile).join(""));
-      syncChoices();
-      feedback.textContent = !visible.size
-        ? (q ? "Không tìm thấy tác phẩm phù hợp." : "Chưa có tác phẩm đã phát hành.")
-        : append && !fresh.length ? "Đã xem hết kết quả." : "";
-      nextOffset = offset + pageSize;
-      more.textContent = "Xem thêm";
-      more.onclick = () => load(true);
-      more.hidden = posts.length < pageSize || nextOffset > 3000;
-    } catch (error) {
-      if (!form.isConnected || request !== controller || controller.signal.aborted) return;
-      feedback.textContent = error.message;
-      more.textContent = "Thử lại";
-      more.onclick = () => load(append);
-      more.hidden = false;
-    } finally {
-      if (request === controller && !controller.signal.aborted)
-        results.removeAttribute("aria-busy");
-    }
-  }
-
-  search.addEventListener("input", () => {
-    clearTimeout(timer);
-    request?.abort();
-    more.hidden = true;
-    feedback.textContent = "Đang tìm tác phẩm…";
-    timer = setTimeout(() => load(), 250);
-  });
-  search.addEventListener("keydown", event => {
-    if (event.key !== "Enter" || event.isComposing) return;
-    event.preventDefault();
-    clearTimeout(timer);
-    load();
-  });
-  results.addEventListener("change", event => {
-    const checkbox = event.target;
-    if (!checkbox.matches("[data-collection-choice]")) return;
-    if (checkbox.checked && selected.size < maxSelected)
-      selected.set(checkbox.value, visible.get(checkbox.value));
-    else if (!checkbox.checked) selected.delete(checkbox.value);
-    updateSelection();
-  });
-  results.addEventListener("error", event => {
-    const media = event.target;
-    if (media.matches?.("img[data-video-cover]")) {
-      const video = document.createElement("video");
-      video.muted = true;
-      video.playsInline = true;
-      video.preload = "metadata";
-      video.setAttribute("aria-hidden", "true");
-      video.src = media.dataset.videoCover + "#t=0.1";
-      media.replaceWith(video);
-    } else if (media.matches?.("img, video")) media.hidden = true;
-  }, true);
-  selectedList.addEventListener("click", event => {
-    const remove = event.target.closest("[data-remove-choice]");
-    if (!remove) return;
-    selected.delete(remove.dataset.removeChoice);
-    updateSelection();
-    (selectedList.querySelector("button") || search).focus();
-  });
-  load();
-}
-async function groupPage(kind, id) {
-  const { group, posts, canEdit } = await api(
-    kind + "/" + encodeURIComponent(id),
-  );
-  const head = heading(
-    group.title,
-    group.description,
-    canEdit ? link("Tìm thêm tác phẩm", "#browse") : "",
-  );
-  if (!canEdit) return head + grid(posts);
-  return (
-    head +
-    `<form id="collection-rename-form" class="surface collection-rename" data-id="${esc(id)}">
-    <label>Tên bộ sưu tập<input name="title" value="${esc(group.title)}" required maxlength="80"></label>
-    <button type="submit" class="btn dark">Lưu tên</button><p role="status" class="muted"></p></form>` +
-    (posts.length
-      ? `<div class="grid">${posts.map((post) => `<div class="collection-owned-post">${card(post)}${button("Bỏ khỏi bộ", "collection-remove", post.id, id)}</div>`).join("")}</div>`
-      : empty("Bộ sưu tập chưa có tác phẩm."))
-  );
-}
-
-async function refreshCollectionPicker(dialog) {
-  const list = dialog.querySelector(".collection-picker-list");
-  const { collections } = await api(
-    "my-collections?" + new URLSearchParams({ postId: dialog.dataset.postId }),
-  );
-  if (!dialog.isConnected) return;
-  list.innerHTML = collections.length
-    ? collections
-        .map(
-          (
-            group,
-          ) => `<li><button type="button" data-picker-collection="${esc(group.id)}"
-    aria-pressed="${group.contains_post}"><span>${esc(group.title)}</span><span>${group.contains_post ? "Đã thêm" : "Thêm"}</span></button></li>`,
-        )
-        .join("")
-    : "<li>Bạn chưa có bộ sưu tập.</li>";
-}
-
-async function openCollectionPicker(postId) {
-  const dialog = document.createElement("dialog");
-  dialog.className = "surface collection-picker";
-  dialog.dataset.postId = postId;
-  dialog.setAttribute("aria-labelledby", "collection-picker-title");
-  dialog.innerHTML = `<header><h2 id="collection-picker-title">Thêm vào bộ sưu tập</h2><button class="btn light" type="button" data-collection-close aria-label="Đóng">×</button></header>
-    <ul class="collection-picker-list"><li>Đang tải bộ sưu tập…</li></ul><p class="muted" data-picker-status role="status"></p>
-    <form id="collection-picker-create"><label>Tên bộ mới<input name="title" maxlength="80" required></label><button class="btn dark" type="submit">Tạo và thêm</button><p class="muted" role="status"></p></form>`;
-  app.append(dialog);
-  dialog.addEventListener("close", () => dialog.remove(), { once: true });
-  dialog.showModal();
-  try {
-    await refreshCollectionPicker(dialog);
-  } catch (error) {
-    dialog.querySelector(".collection-picker-list").replaceChildren();
-    dialog.querySelector("[data-picker-status]").textContent = error.message;
-  }
-}
 function more() {
   return (
     heading("Khác") +
@@ -1275,7 +1027,9 @@ for (const eventName of ["playing", "pause", "ended"]) {
   );
 }
 app.addEventListener("click", async (event) => {
-  const pickerClose = event.target.closest("[data-collection-close], [data-admin-credit-close]");
+  const pickerClose = event.target.closest(
+    "[data-collection-close], [data-admin-credit-close]",
+  );
   if (pickerClose) {
     pickerClose.closest("dialog").close();
     return;
@@ -1484,7 +1238,7 @@ app.addEventListener("click", async (event) => {
     const dialog = document.createElement("dialog");
     dialog.className = "surface collection-picker admin-credit-dialog";
     dialog.setAttribute("aria-labelledby", "admin-credit-title");
-    dialog.innerHTML = `<header><h2 id="admin-credit-title">Edit money</h2></header>
+    dialog.innerHTML = `<header><h2 id="admin-credit-title">Điều chỉnh số dư</h2></header>
       <p>Tài khoản nhận <strong>${esc(name)}</strong><br><span class="muted">${esc(email)}</span></p>
       <p>Số dư hiện tại <strong>${money(next)}</strong></p>
       <form id="admin-credit-form" data-id="${esc(id)}" data-balance="${esc(next)}">
@@ -1560,11 +1314,18 @@ app.addEventListener("click", async (event) => {
       notice("Đã cập nhật kiểm duyệt.");
     } else if (action === "admin-account-status") {
       const disabled = next === "disable";
-      if (disabled && !window.confirm("Khóa tài khoản này và kết thúc các phiên đang đăng nhập?")) {
+      if (
+        disabled &&
+        !window.confirm(
+          "Khóa tài khoản này và kết thúc các phiên đang đăng nhập?",
+        )
+      ) {
         control.disabled = false;
         return;
       }
-      await json("admin-accounts/" + encodeURIComponent(id), "PUT", { disabled });
+      await json("admin-accounts/" + encodeURIComponent(id), "PUT", {
+        disabled,
+      });
       if (!control.isConnected) return;
       notice(disabled ? "Đã khóa tài khoản." : "Đã mở khóa tài khoản.");
     } else if (action.startsWith("admin-")) {
@@ -1659,11 +1420,17 @@ app.addEventListener("drop", (event) => {
 app.addEventListener(
   "error",
   (event) => {
-    if (event.target.matches?.(".purchase-cover img, .admin-post-preview img")) {
+    if (
+      event.target.matches?.(".purchase-cover img, .admin-post-preview img")
+    ) {
       event.target.hidden = true;
       return;
     }
-    if (event.target.matches?.(".gallery-thumb-poster, .collection-cover-pane img")) {
+    if (
+      event.target.matches?.(
+        ".gallery-thumb-poster, .collection-cover-pane img",
+      )
+    ) {
       const image = event.target;
       if (image.dataset.fallback) {
         image.src = image.dataset.fallback;
@@ -1833,11 +1600,18 @@ app.addEventListener("submit", async (event) => {
       const key = `pck-admin-balance-${user.id}-${targetId}-${expectedBalance}-${balance}`;
       let result;
       try {
-        result = await json("admin-accounts/" + encodeURIComponent(targetId) + "/balance", "POST", {
-          balance, expectedBalance, requestId: topupRequestId(key),
-        });
+        result = await json(
+          "admin-accounts/" + encodeURIComponent(targetId) + "/balance",
+          "POST",
+          {
+            balance,
+            expectedBalance,
+            requestId: topupRequestId(key),
+          },
+        );
       } catch (error) {
-        if (error.status >= 400 && error.status < 500 && error.status !== 408) topupRequestId(key, true);
+        if (error.status >= 400 && error.status < 500 && error.status !== 408)
+          topupRequestId(key, true);
         if (error.status === 409 && form.isConnected) {
           form.closest("dialog").close();
           notice(error.message);
@@ -1947,32 +1721,7 @@ app.addEventListener("submit", async (event) => {
     });
   }
 });
-const topbar = document.querySelector(".topbar");
-const themeButton = document.querySelector("#theme-toggle");
-const colorScheme = window.matchMedia("(prefers-color-scheme: dark)");
-let theme;
-try {
-  theme = localStorage.getItem("pck-theme");
-} catch {}
-function applyTheme() {
-  const dark = theme ? theme === "dark" : colorScheme.matches;
-  document.documentElement.dataset.theme = dark ? "dark" : "light";
-  themeButton.setAttribute("aria-pressed", String(dark));
-}
-themeButton.addEventListener("click", () => {
-  theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
-  try {
-    localStorage.setItem("pck-theme", theme);
-  } catch {}
-  applyTheme();
-});
-colorScheme.addEventListener("change", applyTheme);
-applyTheme();
-function updateTopbar() {
-  topbar.classList.toggle("is-scrolled", window.scrollY > 12);
-}
-window.addEventListener("scroll", updateTopbar, { passive: true });
-updateTopbar();
+setupTheme();
 window.addEventListener("hashchange", () => {
   render();
   window.scrollTo(0, 0);

@@ -39,6 +39,10 @@ const assets = {
     "concept/purchase.js",
     "text/javascript; charset=utf-8",
   ],
+  "/demo-assets/gallery.js": ["concept/gallery.js", "text/javascript; charset=utf-8"],
+  "/demo-assets/collection-builder.js": ["concept/collection-builder.js", "text/javascript; charset=utf-8"],
+  "/demo-assets/collection-pages.js": ["concept/collection-pages.js", "text/javascript; charset=utf-8"],
+  "/demo-assets/theme.js": ["concept/theme.js", "text/javascript; charset=utf-8"],
   "/demo-assets/frame.css": ["concept/frame.css", "text/css; charset=utf-8"],
   "/demo-assets/screens.css": [
     "concept/screens.css",
@@ -48,11 +52,15 @@ const assets = {
 const inFlight = new Map();
 const authWindows = new Map();
 
-function allowAuth(path) {
+function allowAuth(path, address) {
   const minute = Math.floor(Date.now() / 60000);
-  const previous = authWindows.get(path);
+  for (const [key, window] of authWindows) {
+    if (window.minute < minute) authWindows.delete(key);
+  }
+  const key = address + ":" + path;
+  const previous = authWindows.get(key);
   const count = previous?.minute === minute ? previous.count + 1 : 1;
-  authWindows.set(path, { minute, count });
+  authWindows.set(key, { minute, count });
   return count <= (path.endsWith("/register") ? 20 : 60);
 }
 const heroFormats = [
@@ -246,7 +254,7 @@ const server = createServer(async (req, res) => {
         "/api/demo/verify",
         "/api/demo/resend",
       ].includes(path) &&
-      !allowAuth(path)
+      !allowAuth(path, req.socket.remoteAddress || "unknown")
     ) {
       res.setHeader("Retry-After", "60");
       return send(res, 429, {

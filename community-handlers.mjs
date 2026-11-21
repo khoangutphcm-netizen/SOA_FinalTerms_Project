@@ -1,7 +1,7 @@
 export const community = {
   saved: (query, { userId }) =>
     query(
-      "SELECT post_id FROM public.saved_posts WHERE user_id=$1 ORDER BY saved_at DESC LIMIT 50",
+      "SELECT post_id FROM public.saved_posts WHERE user_id=$1 ORDER BY saved_at DESC, post_id DESC",
       [userId],
     ),
   reports: (query) =>

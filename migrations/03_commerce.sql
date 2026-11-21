@@ -53,34 +53,59 @@ CREATE TABLE
         FOREIGN KEY (source_order_id, buyer_id, post_id) REFERENCES orders (id, buyer_id, post_id)
     );
 
-CREATE TABLE wallets (
-    user_id uuid PRIMARY KEY, -- Identity.users.id
-    balance_vnd bigint NOT NULL DEFAULT 0 CHECK (balance_vnd BETWEEN 0 AND 1000000000)
-);
+CREATE TABLE
+    wallets (
+        user_id uuid PRIMARY KEY, -- Identity.users.id
+        balance_vnd bigint NOT NULL DEFAULT 0 CHECK (balance_vnd BETWEEN 0 AND 1000000000)
+    );
 
-CREATE TABLE wallet_entries (
-    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id uuid NOT NULL REFERENCES wallets(user_id),
-    kind text NOT NULL,
-    amount_vnd bigint NOT NULL,
-    balance_after_vnd bigint NOT NULL CHECK (balance_after_vnd BETWEEN 0 AND 1000000000),
-    request_id uuid,
-    actor_id uuid, -- Identity.users.id of the admin who credited the wallet
-    order_id uuid UNIQUE,
-    post_id uuid,
-    created_at timestamptz NOT NULL DEFAULT now(),
-    UNIQUE (user_id, request_id),
-    FOREIGN KEY (order_id, user_id, post_id) REFERENCES orders(id, buyer_id, post_id),
-    CONSTRAINT wallet_entries_kind_check CHECK (
-        (request_id IS NOT NULL AND order_id IS NULL AND post_id IS NULL AND (
-            (kind = 'TOP_UP' AND amount_vnd > 0 AND actor_id IS NULL)
-            OR (kind = 'ADMIN_CREDIT' AND amount_vnd > 0 AND actor_id IS NOT NULL)
-            OR (kind = 'ADMIN_DEBIT' AND amount_vnd < 0 AND actor_id IS NOT NULL)
-        ))
-        OR (kind = 'PURCHASE' AND amount_vnd < 0 AND request_id IS NULL
-            AND order_id IS NOT NULL AND post_id IS NOT NULL AND actor_id IS NULL)
-    )
-);
+CREATE TABLE
+    wallet_entries (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid (),
+        user_id uuid NOT NULL REFERENCES wallets (user_id),
+        kind text NOT NULL,
+        amount_vnd bigint NOT NULL,
+        balance_after_vnd bigint NOT NULL CHECK (balance_after_vnd BETWEEN 0 AND 1000000000),
+        request_id uuid,
+        actor_id uuid, -- Identity.users.id of the admin who credited the wallet
+        order_id uuid UNIQUE,
+        post_id uuid,
+        created_at timestamptz NOT NULL DEFAULT now (),
+        UNIQUE (user_id, request_id),
+        FOREIGN KEY (order_id, user_id, post_id) REFERENCES orders (id, buyer_id, post_id),
+        CONSTRAINT wallet_entries_kind_check CHECK (
+            (
+                request_id IS NOT NULL
+                AND order_id IS NULL
+                AND post_id IS NULL
+                AND (
+                    (
+                        kind = 'TOP_UP'
+                        AND amount_vnd > 0
+                        AND actor_id IS NULL
+                    )
+                    OR (
+                        kind = 'ADMIN_CREDIT'
+                        AND amount_vnd > 0
+                        AND actor_id IS NOT NULL
+                    )
+                    OR (
+                        kind = 'ADMIN_DEBIT'
+                        AND amount_vnd < 0
+                        AND actor_id IS NOT NULL
+                    )
+                )
+            )
+            OR (
+                kind = 'PURCHASE'
+                AND amount_vnd < 0
+                AND request_id IS NULL
+                AND order_id IS NOT NULL
+                AND post_id IS NOT NULL
+                AND actor_id IS NULL
+            )
+        )
+    );
 
 CREATE INDEX wallet_entries_owner_history_idx ON wallet_entries (user_id, created_at DESC, id);
 

@@ -1,7 +1,7 @@
 :root {
   --bg: #f7f7f4;
   --ink: #20211e;
-  --muted: #747770;
+  --muted: #696c65;
   --line: #e3e5df;
   --accent: #e8ff65;
   --card: #fff;
@@ -727,6 +727,10 @@ h1 {
   border: 0;
   outline: 0;
   background: none;
+}
+.explore-search:focus-within {
+  outline: 2px solid #52714e;
+  outline-offset: 2px;
 }
 .select {
   height: 48px;

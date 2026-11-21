@@ -10,7 +10,7 @@ const paymentEvents = new Set([
 
 function stripeClient() {
   const key = process.env.STRIPE_SECRET_KEY || "";
-  if (!key.startsWith("sk_test_") && !key.startsWith("rk_test_"))
+  if (!/^(sk_test_|rk_test_|rkcs_test_)/.test(key))
     throw problem(503, "Chưa cấu hình Stripe test secret key.");
   return new Stripe(key);
 }

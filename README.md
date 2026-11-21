@@ -110,10 +110,10 @@ Khi lưu nháp, Content tạo ảnh preview tối đa 640 px hoặc video không
 
 Chạy một trong hai chế độ từ thư mục dự án. Cả hai dùng bốn kết nối Neon trong `.env`, nên có cùng dữ liệu. Nếu cổng 3100 đang được dùng, dừng phiên PCK cũ trước. Đặt `PORT` trong `.env` nếu muốn dùng cổng khác.
 
-| Chế độ | Chạy bằng một lệnh | Mở trang |
-| --- | --- | --- |
-| Docker Desktop đang chạy | `docker compose up --build --menu=false` | `http://127.0.0.1:3100` |
-| Node.js, dependencies và ngrok đã cài | `npm run ngrok` | URL HTTPS in sau dòng `PCK ngrok` |
+| Chế độ                                | Chạy bằng một lệnh                       | Mở trang                          |
+| ------------------------------------- | ---------------------------------------- | --------------------------------- |
+| Docker Desktop đang chạy              | `docker compose up --build --menu=false` | `http://127.0.0.1:3100`           |
+| Node.js, dependencies và ngrok đã cài | `npm run ngrok`                          | URL HTTPS in sau dòng `PCK ngrok` |
 
 **Dừng bằng Ctrl+C** trong terminal đã chạy lệnh. Compose chạy Gateway và bốn service trong các container riêng, kèm FFmpeg và font. Máy chỉ cần Docker Desktop để dùng chế độ này. Chế độ ngrok khởi chạy PCK bằng Node cùng tunnel trong một terminal, tự dùng URL HTTPS cho cookie và URL quay về từ Stripe.
 

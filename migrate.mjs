@@ -37,7 +37,7 @@ try {
       new URL("./migrations/" + filename, import.meta.url),
       "utf8",
     );
-    const expected = [...sql.matchAll(/^CREATE TABLE (\w+)/gm)]
+    const expected = [...sql.matchAll(/^CREATE\s+TABLE\s+(\w+)/gm)]
       .map((match) => match[1])
       .sort();
     if (!expected.length || !/^BEGIN;[\s\S]+COMMIT;\s*$/.test(sql.trim())) {

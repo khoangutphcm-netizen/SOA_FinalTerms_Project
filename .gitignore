@@ -6,3 +6,4 @@ node_modules/
 /db_connection_string.txt
 /.pck-demo/
 AGENTS.md
+audit/
