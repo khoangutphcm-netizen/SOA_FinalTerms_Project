@@ -287,14 +287,28 @@ export async function handleDemo(req, res, path, send) {
     if (!active)
       return send(res, 401, { message: "Hãy đăng nhập bằng tài khoản demo." });
     if (path === "/api/demo/posts") {
+      const keyword = (new URL(req.url,"http://localhost").searchParams.get("q") || "").trim().slice(0,100);
       const client = connect("CONTENT");
       try {
         await client.connect();
         const { rows } = await client.query(
           `
-          SELECT id, title, status, withdrawn_at FROM public.posts
-          WHERE author_id = $1 ORDER BY created_at DESC, id LIMIT 50`,
-          [active.id],
+          SELECT p.id,p.title,p.status,p.withdrawn_at,p.moderation_state,
+            cover.id AS cover_id,cover.kind AS cover_kind
+          FROM public.posts p
+          LEFT JOIN LATERAL (
+            SELECT a.id,f.kind FROM public.assets a
+            JOIN public.asset_formats f ON f.id=a.format_id
+            WHERE a.post_id=p.id AND a.status='READY' AND f.kind IN ('IMAGE','VIDEO')
+              AND a.original_key LIKE 'local-demo/%'
+              AND p.moderation_state<>'TAKEN_DOWN'
+              AND (p.status IN ('DRAFT','PUBLISHED') OR p.withdrawn_at IS NOT NULL OR p.moderation_state='TEMP_HIDDEN')
+            ORDER BY a.position LIMIT 1
+          ) cover ON true
+          WHERE p.author_id=$1
+            AND ($2='' OR strpos(lower(p.title),lower($2))>0 OR strpos(lower(p.description),lower($2))>0)
+          ORDER BY p.created_at DESC,p.id LIMIT 50`,
+          [active.id,keyword],
         );
         return send(res, 200, { posts: rows });
       } finally {

@@ -1,3 +1,5 @@
+const demoDot = '<a class="force-login-link" href="#login/demo" aria-label="Force login · Đăng nhập demo" title="Đăng nhập demo"></a>';
+
 export function welcome({ link }) {
   return `<section class="welcome-screen"><div class="welcome-copy">
   <h1><span>PCK.</span><br>Kho ảnh<br>và video.</h1>
@@ -17,20 +19,22 @@ export function welcome({ link }) {
   </div>
  </section>`;
 }
-export function authForm({ user, heading, link }, register = false) {
+export function authForm({ user, heading, link, demo = false }, register = false) {
   if (user)
     return heading(
       "Bạn đã đăng nhập",
       user.alias,
       link("Tài khoản", "#account"),
     );
-  const label = register ? "Tạo tài khoản" : "Đăng nhập";
+  const label = register ? "Tạo tài khoản" : demo ? "Đăng nhập demo" : "Đăng nhập";
   return `<section class="auth-screen">${heading(label)}<form id="${register ? "register" : "login"}-form" class="surface edit-form">
  ${register ? '<label>Tên hiển thị<input name="displayName" required maxlength="80" autocomplete="nickname"></label>' : ""}
- ${register ? '<label>Email<input name="email" type="email" required maxlength="254" autocomplete="username"></label>' : '<label>Tên đăng nhập hoặc email<input name="identifier" type="text" required maxlength="254" autocapitalize="none" autocomplete="username" placeholder="Ví dụ: user1"></label>'}
+ ${register ? '<label>Email<input name="email" type="email" required maxlength="254" autocomplete="username"></label>' : demo
+  ? '<label>Tài khoản demo<select name="identifier" autocomplete="username"><option>user1</option><option>user2</option><option>user3</option><option>admin</option></select></label>'
+  : '<label>Tên đăng nhập hoặc email<input name="identifier" type="text" required maxlength="254" autocapitalize="none" autocomplete="username" placeholder="Ví dụ: user1"></label>'}
  <label>Mật khẩu<input name="password" type="password" required ${register ? 'minlength="8"' : ""} maxlength="128" autocomplete="${register ? "new-password" : "current-password"}"></label>
- <div class="button-row"><button class="btn dark">${label}</button>${register ? link("Đã có tài khoản", "#login") : link("Tạo tài khoản", "#register")}</div>
- <a href="#verify">Xác minh email hoặc gửi lại mã</a>
+ <div class="button-row"><button class="btn dark">${label}</button>${register || demo ? link("Đăng nhập thường", "#login") : link("Tạo tài khoản", "#register")}</div>
+ ${demo ? '<p class="muted">Dùng mật khẩu của tài khoản demo đã được cấp.</p>' : `<div class="button-row"><a href="#verify">Xác minh email hoặc gửi lại mã</a>${demoDot}</div>`}
  <p role="status" class="muted"></p>
  <a href="#home">Tiếp tục với vai trò khách</a>
  </form></section>`;
@@ -40,5 +44,5 @@ export function verifyForm({ heading, esc, verificationEmail }) {
  <label>Email<input name="email" type="email" required maxlength="254" autocomplete="email" value="${esc(verificationEmail)}"></label>
  <label>Mã xác minh<input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autocomplete="one-time-code"></label>
  <div class="button-row"><button class="btn dark" name="operation" value="verify">Xác minh</button><button class="btn" name="operation" value="resend" type="submit" formnovalidate>Gửi lại mã</button></div>
- <p role="status" class="muted"></p><a href="#login">Đăng nhập</a></form></section>`;
+ <p role="status" class="muted"></p><div class="button-row"><a href="#login">Đăng nhập</a>${demoDot}</div></form></section>`;
 }

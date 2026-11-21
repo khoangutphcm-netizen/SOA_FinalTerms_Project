@@ -125,7 +125,7 @@ function notice(text) {
 function button(label, action, id = "", next = "") {
   return `<button class="btn light" data-action="${action}" data-id="${esc(id)}" data-next="${esc(next)}">${esc(label)}</button>`;
 }
-function card(p, quickSave = false) {
+function card(p, { quickSave = false, compact = false } = {}) {
   const types = p.kinds || [];
   const kinds =
     types.includes("IMAGE") && types.includes("VIDEO")
@@ -136,22 +136,33 @@ function card(p, quickSave = false) {
       ? "/api/demo/media/" + encodeURIComponent(p.cover_id)
       : "";
   const video = cover && p.cover_kind === "VIDEO";
-  return `<article class="card ${video ? "video-card" : ""}"><a href="${postLink(p)}">
+  const paid = Number(p.price_vnd) > 0;
+  const metadata = [...kinds, ...(p.genres || [])].join(" · ");
+  const showDetails = compact && Boolean(metadata || paid);
+  const availablePrice = p.moderation_state === "TAKEN_DOWN" ? "Đã gỡ do kiểm duyệt"
+    : p.withdrawn_at ? "Đã gỡ khỏi Khám phá"
+    : p.moderation_state === "TEMP_HIDDEN" ? "Tạm ẩn · Người mua vẫn xem được"
+    : p.status === "HIDDEN" ? "Không khả dụng" : price(p);
+  const infoId = "catalog-info-" + esc(p.id);
+  return `<article class="card${video ? " video-card" : ""}${compact ? " catalog-compact-card" : ""}"><a href="${postLink(p)}">
   <div class="visual real-cover">${
     video
       ? `<video src="${cover}" muted playsinline loop preload="metadata" aria-hidden="true"></video>`
       : cover && p.cover_kind === "IMAGE"
         ? `<img src="${cover}" alt="" loading="lazy">`
         : "<span>Chưa có ảnh bìa</span>"
-  }</div>
-  <div class="card-body"><div class="catalog-card-meta"><span class="category">${esc(kinds.join(" · "))}</span>${p.genres?.length ? `<span>${esc(p.genres.join(" · "))}</span>` : ""}</div><h3>${esc(p.title)}</h3>
-  <p class="catalog-price">${quickSave && Number(p.price_vnd) > 0 ? "<span>Premium</span> · " : ""}${esc(p.moderation_state === "TAKEN_DOWN" ? "Đã gỡ do kiểm duyệt" : p.withdrawn_at ? "Đã gỡ khỏi Khám phá" : p.moderation_state === "TEMP_HIDDEN" ? "Tạm ẩn · Người mua vẫn xem được" : p.status === "HIDDEN" ? "Không khả dụng" : price(p))}</p></div></a>
+  }${showDetails ? `<div class="catalog-card-reveal" id="${infoId}">${metadata ? `<span>${esc(metadata)}</span>` : ""}${paid ? `<strong>${esc(price(p))}</strong>` : ""}</div>` : ""}</div>
+  ${compact
+    ? `<div class="card-body catalog-card-caption"><h3>${esc(p.title)}</h3><span class="catalog-card-tier${paid ? " is-paid" : ""}">${paid ? "Trả phí" : "Miễn phí"}</span></div>`
+    : `<div class="card-body"><div class="catalog-card-meta"><span class="category">${esc(kinds.join(" · "))}</span>${p.genres?.length ? `<span>${esc(p.genres.join(" · "))}</span>` : ""}</div><h3>${esc(p.title)}</h3>
+  <p>${esc(availablePrice)}</p></div>`}</a>
+  ${showDetails ? `<button type="button" class="catalog-card-info" data-card-info aria-label="Thông tin tác phẩm ${esc(p.title)}" aria-controls="${infoId}" aria-expanded="false"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8h.01" stroke-linecap="round"/></svg></button>` : ""}
   ${quickSave ? `<button type="button" class="card-save" data-quick-save="${esc(p.id)}" aria-label="Lưu ${esc(p.title)} vào Xem sau" aria-pressed="${savedForBrowse.has(p.id)}">${savedForBrowse.has(p.id) ? "Đã lưu" : "Lưu"}</button>` : ""}
   ${video ? '<button type="button" class="video-card-toggle" aria-label="Phát video đại diện" data-video-toggle>▶</button>' : ""}</article>`;
 }
-const grid = (posts, msg = "Chưa có tác phẩm nào.", quickSave = false) =>
+const grid = (posts, msg = "Chưa có tác phẩm nào.", options) =>
   posts.length
-    ? `<div class="grid">${posts.map((post) => card(post, quickSave)).join("")}</div>`
+    ? `<div class="grid">${posts.map((post) => card(post, options)).join("")}</div>`
     : empty(msg);
 const groupCards = (groups, route) =>
   groups.length
@@ -189,7 +200,7 @@ async function home() {
   }
   const recent = take(catalog.posts);
   const mediaShelf = (title, entries, route) =>
-    entries.length ? shelf(title, grid(entries), link("Xem thêm", route)) : "";
+    entries.length ? shelf(title, grid(entries, undefined, { compact: true }), link("Xem thêm", route)) : "";
   return (
     '<div class="catalog-page catalog-home">' +
     document.querySelector("#hero-template").innerHTML +
@@ -197,7 +208,7 @@ async function home() {
     shelf(
       "Nổi bật",
       picks.length
-        ? `<div class="feature-gallery" data-count="${picks.length}">${picks.map((post) => card(post)).join("")}</div>`
+        ? `<div class="feature-gallery">${picks.map((post) => card(post, { compact: true })).join("")}</div>`
         : empty("Chưa có tác phẩm nổi bật."),
       link("Vào Khám phá", "#browse"),
     ) +
@@ -230,7 +241,7 @@ function browseSearch() {
 
 function browseResults(posts) {
   return (
-    grid(posts, "Không tìm thấy tác phẩm phù hợp.", true) +
+    grid(posts, "Không tìm thấy tác phẩm phù hợp.", { compact: true, quickSave: true }) +
     `<div class="button-row pagination">${filters.offset ? button("Trang trước", "previous") : ""}${posts.length === 25 && filters.offset < 3000 ? button("Trang sau", "next") : ""}</div>`
   );
 }
@@ -490,6 +501,47 @@ function scheduleGallery() {
   }, 7000);
 }
 
+function ownPostCards(posts, query = "") {
+  if (!posts.length) return empty(query ? "Không tìm thấy bài phù hợp." : "Bạn chưa đăng tác phẩm nào.");
+  return `<div class="own-post-grid">${posts.map(post => {
+    const cover = post.cover_id ? "/api/demo/media/" + encodeURIComponent(post.cover_id) : "";
+    const media = cover && post.cover_kind === "VIDEO"
+      ? `<video src="${cover}" muted playsinline preload="metadata" aria-hidden="true"></video>`
+      : cover ? `<img src="${cover}" alt="" loading="lazy">` : "";
+    return `<article class="own-post-card">
+      <a href="${postLink(post)}" class="own-post-link">
+        <div class="own-post-cover">${media}<span ${media ? "hidden" : ""}>Chưa có hình xem trước</span></div>
+        <div class="own-post-copy"><span>${esc(postStatus(post))}</span><h3>${esc(post.title)}</h3></div>
+      </a>
+      <div class="button-row post-actions">${postActions(post)}</div>
+    </article>`;
+  }).join("")}</div>`;
+}
+
+let ownPostsTimer, ownPostsRequest = 0;
+function searchOwnPosts(input, delay = 250) {
+  clearTimeout(ownPostsTimer);
+  const request = ++ownPostsRequest;
+  const query = input.value.trim();
+  const results = app.querySelector("#own-post-results");
+  const status = app.querySelector("#own-post-status");
+  status.textContent = "Đang tìm…";
+  results.setAttribute("aria-busy", "true");
+  ownPostsTimer = setTimeout(async () => {
+    if (!input.isConnected) return;
+    try {
+      const { posts } = await api("posts?" + new URLSearchParams({ q: query }));
+      if (request !== ownPostsRequest || !input.isConnected) return;
+      results.innerHTML = ownPostCards(posts, query);
+      status.textContent = posts.length ? `Hiển thị ${posts.length} bài.` : "";
+    } catch (error) {
+      if (request === ownPostsRequest && input.isConnected) status.textContent = error.message;
+    } finally {
+      if (request === ownPostsRequest && input.isConnected) results.removeAttribute("aria-busy");
+    }
+  }, delay);
+}
+
 async function account(tab = "profile") {
   if (!user) return loginRequired("Đăng nhập để xem bài và nội dung của bạn.");
   const tabs = [
@@ -501,9 +553,10 @@ async function account(tab = "profile") {
   let content = `<div class="surface"><p>${esc(user.alias)} · ${esc(user.role)}</p>${user.role === "ADMIN" ? link("Quản trị", "#admin") : ""} ${button("Đăng xuất", "logout")}</div>`;
   if (tab === "posts") {
     const { posts } = await api("posts");
-    content = posts.length
-      ? `<ul class="real-list surface">${posts.map((p) => `<li><a href="${postLink(p)}"><strong>${esc(p.title)}</strong></a><span>${esc(postStatus(p))}</span><div class="button-row post-actions">${postActions(p)}</div></li>`).join("")}</ul>`
-      : empty("Bạn chưa tải tác phẩm nào.");
+    content = `<section aria-label="Bài của tôi"><form id="own-post-search" role="search" aria-label="Tìm bài của tôi">
+      <input type="search" name="q" maxlength="100" aria-label="Tìm bài của tôi" placeholder="Tìm theo tên hoặc mô tả bài…">
+    </form><p class="muted" id="own-post-status" role="status"></p>
+    <div id="own-post-results">${ownPostCards(posts)}</div></section>`;
   } else if (["saved", "purchases"].includes(tab)) {
     const { posts } = await api(tab);
     content =
@@ -624,7 +677,7 @@ async function render({ selectedMediaId } = {}) {
       });
     },
     welcome: () => welcome({ link }),
-    login: () => authForm({ user, heading, link }),
+    login: () => authForm({ user, heading, link, demo: id === "demo" }),
     register: () => authForm({ user, heading, link }, true),
     verify: () => verifyForm({ heading, esc, verificationEmail }),
     upload: () =>
@@ -822,6 +875,13 @@ app.addEventListener("click", async (event) => {
     }
     return;
   }
+  const infoToggle = event.target.closest("[data-card-info]");
+  if (infoToggle) {
+    const open = infoToggle.getAttribute("aria-expanded") !== "true";
+    infoToggle.setAttribute("aria-expanded", String(open));
+    infoToggle.closest(".catalog-compact-card").classList.toggle("is-info-open", open);
+    return;
+  }
   const videoToggle = event.target.closest("[data-video-toggle]");
   if (videoToggle) {
     const video = videoToggle.closest(".video-card").querySelector("video");
@@ -1012,6 +1072,7 @@ app.addEventListener("change", (event) => {
   }
 });
 app.addEventListener("input", (event) => {
+  if (event.target.form?.id === "own-post-search") searchOwnPosts(event.target);
   if (event.target.matches("[data-preview-start]")) {
     const entry = uploadState.files[Number(event.target.dataset.previewStart)];
     if (entry) entry.previewStart = event.target.value;
@@ -1040,22 +1101,29 @@ app.addEventListener("drop", (event) => {
   zone.classList.remove("drag-active");
   addUploadFiles(zone.closest("form"), [...event.dataTransfer.files]);
 });
+app.addEventListener("error", (event) => {
+  const cover = event.target.closest?.(".own-post-cover");
+  if (!cover) return;
+  event.target.hidden = true;
+  cover.querySelector("span").hidden = false;
+}, true);
+
+document.querySelector("#global-search").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const data = new FormData(event.currentTarget);
+  filters = {
+    q: String(data.get("q") || "").trim(),
+    kind: "", sort: "new", pay: "", days: "", offset: 0, include: [], exclude: [],
+  };
+  go("browse");
+});
+
 app.addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.target,
     data = new FormData(form);
-  if (form.id === "home-search") {
-    filters = {
-      q: String(data.get("q") || "").trim(),
-      kind: "",
-      sort: "new",
-      pay: "",
-      days: "",
-      offset: 0,
-      include: [],
-      exclude: [],
-    };
-    go("browse");
+  if (form.id === "own-post-search") {
+    searchOwnPosts(form.elements.q, 0);
     return;
   }
   if (form.id === "browse-form") {
@@ -1160,6 +1228,22 @@ app.addEventListener("submit", async (event) => {
   }
 });
 const topbar = document.querySelector(".topbar");
+const themeButton = document.querySelector("#theme-toggle");
+const colorScheme = window.matchMedia("(prefers-color-scheme: dark)");
+let theme;
+try { theme = localStorage.getItem("pck-theme"); } catch {}
+function applyTheme() {
+  const dark = theme ? theme === "dark" : colorScheme.matches;
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+  themeButton.setAttribute("aria-pressed", String(dark));
+}
+themeButton.addEventListener("click", () => {
+  theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  try { localStorage.setItem("pck-theme", theme); } catch {}
+  applyTheme();
+});
+colorScheme.addEventListener("change", applyTheme);
+applyTheme();
 function updateTopbar() {
   topbar.classList.toggle("is-scrolled", window.scrollY > 12);
 }

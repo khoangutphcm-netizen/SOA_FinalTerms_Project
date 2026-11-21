@@ -130,6 +130,9 @@ INSERT INTO asset_formats (extension, mime_type, kind, enabled) VALUES
 
 INSERT INTO genres (slug, name) VALUES
     ('thien-nhien', 'Thiên nhiên'), ('doi-song', 'Đời sống'),
-    ('du-lich', 'Du lịch'), ('nghe-thuat', 'Nghệ thuật');
+    ('du-lich', 'Du lịch'), ('nghe-thuat', 'Nghệ thuật'),
+    ('chan-dung', 'Chân dung'), ('kien-truc', 'Kiến trúc'),
+    ('am-thuc', 'Ẩm thực'), ('dong-vat', 'Động vật'),
+    ('the-thao', 'Thể thao'), ('cong-nghe', 'Công nghệ');
 
 COMMIT;

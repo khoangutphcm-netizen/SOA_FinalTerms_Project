@@ -37,7 +37,6 @@ export async function discover({
   ${
     genres.length
       ? `<div class="browse-topics" role="group" aria-label="Chủ đề nhanh">${genres
-          .slice(0, 6)
           .map(
             (g) =>
               `<button type="button" data-topic="${esc(g.id)}" aria-pressed="${include.includes(g.id)}">${esc(g.name)}</button>`,
