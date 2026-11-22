@@ -107,22 +107,20 @@ const reportDate = new Intl.DateTimeFormat("vi-VN", {
   dateStyle: "short", timeZone: "Asia/Ho_Chi_Minh",
 });
 
-export function revenuePage({ period, year, month, sort, q, page, lastPage, summary, posts }, esc, postLink) {
+export function revenuePage(report, esc, postLink) {
+  const { period, year, month, sort, q, summary } = report;
   const options = (choices, selected) => choices.map(([value, label]) =>
     `<option value="${value}"${value === selected ? " selected" : ""}>${label}</option>`).join("");
   const periodLabel = period === "all" ? "Toàn thời gian" : period === "year"
     ? `Năm ${year}` : `Tháng ${month}/${year}`;
-  const pageLink = (target) => "#account/revenue?" + new URLSearchParams({ period, year, month, sort, q, page: target });
   return `<section class="account-revenue" aria-labelledby="seller-sales-title">
     <div class="surface seller-sales-summary">
-      <div><h2 id="seller-sales-title">Doanh thu</h2><p class="muted">${periodLabel} · Đơn đã thanh toán${q ? " · Tổng cả kỳ" : ""}</p></div>
+      <div><h2 id="seller-sales-title">Doanh thu</h2><p class="muted">${periodLabel} · Đơn đã thanh toán</p></div>
       <dl class="seller-sales-totals">
-        <div><dt>Tổng doanh thu</dt><dd>${money(summary.revenueVnd)}</dd></div>
+        <div><dt>Doanh thu cả kỳ</dt><dd>${money(summary.revenueVnd)}</dd></div>
         <div><dt>Lượt bán</dt><dd>${summary.paidCount.toLocaleString("vi-VN")}</dd></div>
       </dl>
-    </div>
-    <form id="revenue-filters" class="revenue-filters" aria-label="Lọc doanh thu">
-      <label class="revenue-search">Tìm tác phẩm<input type="search" name="q" maxlength="100" value="${esc(q)}" placeholder="Nhập tên ảnh hoặc video"></label>
+      <form id="revenue-period" class="revenue-filters revenue-period" aria-label="Chọn kỳ báo cáo">
       <label>Kỳ báo cáo<select name="period">${options([
         ["month", "Theo tháng"], ["year", "Theo năm"], ["all", "Toàn thời gian"],
       ], period)}</select></label>
@@ -130,13 +128,24 @@ export function revenuePage({ period, year, month, sort, q, page, lastPage, summ
         Array.from({ length: 12 }, (_, i) => [i + 1, `Tháng ${i + 1}`]), month,
       )}</select></label>
       <label${period === "all" ? " hidden" : ""}>Năm<input type="number" name="year" required value="${year}" min="1000" max="9998" inputmode="numeric"${period === "all" ? " disabled" : ""}></label>
+      <button class="btn dark" type="submit">Áp dụng</button>
+      </form>
+    </div>
+    <form id="revenue-filters" class="revenue-filters revenue-toolbar" role="search" aria-label="Tìm tác phẩm đã bán">
+      <label class="revenue-search">Tìm tác phẩm<input type="search" name="q" maxlength="100" value="${esc(q)}" placeholder="Nhập tên ảnh hoặc video" aria-controls="revenue-results"></label>
       <label>Sắp xếp<select name="sort">${options([
         ["revenue-desc", "Doanh thu cao nhất"], ["revenue-asc", "Doanh thu thấp nhất"],
         ["sold", "Bán nhiều nhất"], ["recent", "Bán gần đây nhất"],
       ], sort)}</select></label>
-      <button class="btn dark" type="submit">Áp dụng</button>
     </form>
-    ${posts.length ? `<div class="surface revenue-table-wrap">
+    <p id="revenue-status" class="muted" role="status"></p>
+    <div id="revenue-results">${revenueResults(report, esc, postLink)}</div>
+  </section>`;
+}
+
+export function revenueResults({ period, year, month, sort, q, page, lastPage, posts }, esc, postLink) {
+  const pageLink = (target) => "#account/revenue?" + new URLSearchParams({ period, year, month, sort, q, page: target });
+  return `${posts.length ? `<div class="surface revenue-table-wrap">
       <table class="revenue-table" aria-label="Doanh thu theo tác phẩm">
         <thead><tr><th scope="col">Tác phẩm</th><th scope="col">Lượt bán</th>
           <th scope="col">Doanh thu</th><th scope="col" class="revenue-date">Bán gần nhất</th></tr></thead>
@@ -159,8 +168,7 @@ export function revenuePage({ period, year, month, sort, q, page, lastPage, summ
       ${page > 1 ? `<a class="btn light" href="${esc(pageLink(page - 1))}">Trang trước</a>` : ""}
       <span>Trang ${page}/${lastPage}</span>
       ${page < lastPage ? `<a class="btn light" href="${esc(pageLink(page + 1))}">Trang sau</a>` : ""}
-    </nav>` : ""}
-  </section>`;
+    </nav>` : ""}`;
 }
 
 const downloadLabels = {
