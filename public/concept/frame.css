@@ -105,6 +105,13 @@ a {
   background: #22251f;
   color: #fff;
 }
+.btn.primary {
+  background: linear-gradient(120deg, #17453a, #28634c);
+  color: #fff;
+}
+.btn.primary:not(:disabled):hover { filter: brightness(1.12); }
+.btn.primary:focus-visible { outline: 2px solid #79a27a; outline-offset: 3px; }
+.btn.primary:disabled { opacity: .6; cursor: not-allowed; }
 .btn.light {
   background: #e9ebe5;
 }

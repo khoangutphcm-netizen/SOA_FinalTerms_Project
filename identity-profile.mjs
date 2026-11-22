@@ -31,6 +31,15 @@ function readAvatar(encoded) {
 }
 
 export const profileHandlers = {
+  async "public-profile"(query, { userId }) {
+    const [profile] = await query(
+      `SELECT id,display_name AS alias,bio,avatar_updated_at AS "avatarVersion"
+       FROM public.users WHERE id=$1 AND status='ACTIVE'`,
+      [userId],
+    );
+    if (!profile) throw problem(404, "Hồ sơ này không khả dụng.");
+    return profile;
+  },
   async profile(query, { userId }) {
     const [profile] = await query(
       `SELECT ${profileColumns} FROM public.users WHERE id=$1 AND status='ACTIVE'`, [userId],

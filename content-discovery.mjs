@@ -11,11 +11,11 @@ import {
   withCoverKind,
 } from "./content-shared.mjs";
 
-export async function catalog(search) {
+export async function catalog(search, { authorId = null, limit = 25, start } = {}) {
   const keyword = (search.get("q") || "").trim().slice(0, 100);
   const kind = search.get("kind");
   const sort = search.get("sort") === "old" ? "ASC" : "DESC";
-  const offset = Math.min(
+  const offset = start ?? Math.min(
     3000,
     Math.max(0, Number.parseInt(search.get("offset"), 10) || 0),
   );
@@ -46,6 +46,7 @@ export async function catalog(search) {
     "CONTENT",
     withCoverKind(`SELECT ${postFields}, ${coverColumns}
     FROM public.posts p WHERE p.status='PUBLISHED'
+    AND ($8::uuid IS NULL OR (p.author_id=$8 AND p.withdrawn_at IS NULL AND p.moderation_state='CLEAR'))
     AND ($1='' OR strpos(lower(p.title), lower($1))>0 OR strpos(lower(p.description), lower($1))>0
       OR EXISTS (SELECT 1 FROM public.post_genres pg JOIN public.genres g ON g.id=pg.genre_id
         WHERE pg.post_id=p.id AND strpos(lower(g.name),lower($1))>0))
@@ -55,9 +56,9 @@ export async function catalog(search) {
       OR ($5='30' AND p.published_at>=now()-interval '30 days') OR ($5='older' AND p.published_at<now()-interval '30 days'))
     AND (cardinality($6::uuid[])=0 OR EXISTS (SELECT 1 FROM public.post_genres WHERE post_id=p.id AND genre_id=ANY($6)))
     AND NOT EXISTS (SELECT 1 FROM public.post_genres WHERE post_id=p.id AND genre_id=ANY($7::uuid[]))
-    ORDER BY p.published_at ${sort}, p.id LIMIT 25 OFFSET $3`) +
+    ORDER BY p.published_at ${sort}, p.id LIMIT $9 OFFSET $3`) +
       ` ORDER BY entries.published_at ${sort}, entries.id`,
-    [keyword, kinds, offset, pay, days, include, exclude],
+    [keyword, kinds, offset, pay, days, include, exclude, authorId, limit],
   );
 }
 

@@ -27,6 +27,16 @@ async function rows(sql, params) {
   );
 }
 
+function paidSales(postIds = null) {
+  return rows(
+    `SELECT post_id,count(*)::int AS "paidCount",sum(amount_vnd)::text AS "revenueVnd"
+     FROM public.orders WHERE status='PAID'
+     ${postIds ? "AND post_id=ANY($1::uuid[])" : ""}
+     GROUP BY post_id`,
+    postIds ? [postIds] : [],
+  );
+}
+
 async function readRawBody(req, limit = 4096) {
   const chunks = [];
   let size = 0;
@@ -147,10 +157,7 @@ const server = createServer(async (req, res) => {
         return send(res, 200, result);
       }
       if (pathname === "/admin/sales") {
-        return send(res, 200, await rows(
-          `SELECT post_id,count(*)::int AS "paidCount",sum(amount_vnd)::text AS "revenueVnd"
-           FROM public.orders WHERE status='PAID' GROUP BY post_id`,
-        ));
+        return send(res, 200, await paidSales());
       }
       const buyerId = searchParams.get("buyerId");
       const postId = searchParams.get("postId");
@@ -183,6 +190,13 @@ const server = createServer(async (req, res) => {
         );
         return send(res, 200, { allowed: rights.length > 0 });
       }
+    }
+    if (req.method === "POST" && pathname === "/sales/by-post") {
+      const { postIds } = (await readBody(req)) ?? {};
+      if (!Array.isArray(postIds) || postIds.length > 100 ||
+          postIds.some(id => typeof id !== "string" || !uuid.test(id)))
+        throw problem(400, "Danh sách tác phẩm không hợp lệ.");
+      return send(res, 200, postIds.length ? await paidSales(postIds) : []);
     }
     if (req.method === "POST" && pathname === "/admin/wallet-balances") {
       const { userIds } = (await readBody(req)) ?? {};

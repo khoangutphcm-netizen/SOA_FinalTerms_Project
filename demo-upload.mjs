@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { connect } from "./demo-accounts.mjs";
 import { callService } from "./internal-services.mjs";
 import { makePreview } from "./media-preview.mjs";
-import { originalExists } from "./content-shared.mjs";
+import { originalExists, withDb } from "./content-shared.mjs";
 import { adminAccountMetrics } from "./content-admin.mjs";
 import { commerce } from "./commerce-client.mjs";
 import {
@@ -212,6 +212,17 @@ async function readJson(req, limit = 16384) {
   return null;
 }
 
+async function authorSales(postIds) {
+  const sales = new Map();
+  // Batches of 100 UUIDs fit within Commerce's JSON body limit.
+  for (let i = 0; i < postIds.length; i += 100) {
+    const rows = await commerce("/sales/by-post", { postIds: postIds.slice(i, i + 100) });
+    for (const { post_id, paidCount, revenueVnd } of rows)
+      sales.set(post_id, { paidCount, revenueVnd });
+  }
+  return sales;
+}
+
 export async function handleDemo(req, res, path, send) {
   const media =
     /^\/api\/demo\/(media|preview|avatar)\//.test(path) && req.method === "GET";
@@ -390,11 +401,11 @@ export async function handleDemo(req, res, path, send) {
       return send(res, 200, profile);
     }
     if (path === "/api/demo/posts") {
-      const keyword = (new URL(req.url,"http://localhost").searchParams.get("q") || "").trim().slice(0,100);
-      const client = connect("CONTENT");
-      try {
-        await client.connect();
-        const { rows } = await client.query(
+      const params = new URL(req.url, "http://localhost").searchParams;
+      const keyword = (params.get("q") || "").trim().slice(0, 100);
+      const includeSummary = params.get("summary") === "1";
+      const { posts, postIds } = await withDb("CONTENT", async client => {
+        const { rows: posts } = await client.query(
           `
           SELECT p.id,p.title,p.status,p.withdrawn_at,p.moderation_state,
             cover.id AS cover_id,cover.kind AS cover_kind
@@ -411,12 +422,29 @@ export async function handleDemo(req, res, path, send) {
           WHERE p.author_id=$1
             AND ($2='' OR strpos(lower(p.title),lower($2))>0 OR strpos(lower(p.description),lower($2))>0)
           ORDER BY p.created_at DESC,p.id LIMIT 50`,
-          [active.id,keyword],
+          [active.id, keyword],
         );
-        return send(res, 200, { posts: rows });
-      } finally {
-        await client.end().catch(() => {});
+        const owned = includeSummary
+          ? (await client.query("SELECT id FROM public.posts WHERE author_id=$1", [active.id])).rows
+          : posts;
+        return { posts, postIds: owned.map(post => post.id) };
+      });
+      const byPost = await authorSales(postIds).catch(() => null);
+      const response = {
+        posts: posts.map(post => ({
+          ...post,
+          sales: byPost ? byPost.get(post.id) ?? { paidCount: 0, revenueVnd: "0" } : null,
+        })),
+      };
+      if (includeSummary) {
+        let paidCount = 0, revenueVnd = 0n;
+        for (const sales of byPost?.values() ?? []) {
+          paidCount += sales.paidCount;
+          revenueVnd += BigInt(sales.revenueVnd);
+        }
+        response.salesSummary = byPost ? { paidCount, revenueVnd: revenueVnd.toString() } : null;
       }
+      return send(res, 200, response);
     }
     if (path !== "/api/demo/upload" && !draftId)
       return send(res, 404, { message: "Không tìm thấy API." });

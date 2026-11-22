@@ -21,7 +21,8 @@ export function galleryFrame(media, i, { empty, esc, kindNames }) {
       : m.premium
         ? "Premium | Đã mở quyền"
         : "Tệp công khai";
-  return `<div class="preview media-stage">${view}</div><div class="detail-file"><div><span>Tệp ${i + 1}/${media.length} | ${kindNames[m.kind] || "Tệp"}</span><strong>${esc(m.filename)}</strong><span>${state}</span></div>${m.url ? `<a class="btn dark" href="${esc(m.url)}" download="${esc(m.filename)}">Tải bản gốc</a>` : ""}</div>`;
+  const downloadStyle = media.some(file => file.locked) ? "light" : "primary";
+  return `<div class="preview media-stage">${view}</div><div class="detail-file"><div><span>Tệp ${i + 1}/${media.length} | ${kindNames[m.kind] || "Tệp"}</span><strong>${esc(m.filename)}</strong><span>${state}</span></div>${m.url ? `<a class="btn ${downloadStyle}" href="${esc(m.url)}" download="${esc(m.filename)}">Tải bản gốc</a>` : ""}</div>`;
 }
 
 export function galleryStrip(media, selected, { esc, kindNames, autoCycle }) {

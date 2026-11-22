@@ -168,6 +168,23 @@ async function withPostAuthors(posts) {
   });
 }
 
+async function creatorPage(id, search) {
+  const pageSize = 25;
+  const requested = Number(search.get("page"));
+  const page = requested > 0 && Number.isSafeInteger(requested) &&
+    Number.isSafeInteger(requested * pageSize) ? requested : 1;
+  const profile = await callService("IDENTITY", "public-profile", { userId: id }, { timeoutMs: 3500 });
+  const posts = await catalog(new URLSearchParams(), {
+    authorId: profile.id, start: (page - 1) * pageSize, limit: pageSize + 1,
+  });
+  return {
+    profile, page, hasMore: posts.length > pageSize,
+    posts: posts.slice(0, pageSize).map(post => ({
+      ...post, author: profile.alias, authorAvatarVersion: profile.avatarVersion,
+    })),
+  };
+}
+
 async function library(kind, caller) {
   const purchased = kind === "purchases";
   const rows =
@@ -377,6 +394,7 @@ export async function handleCatalog(req, res, path, send, caller, readJson) {
       path,
     );
   const group = /^\/api\/demo\/(collections|events)(?:\/([^/]+))?$/.exec(path);
+  const creator = /^\/api\/demo\/creators\/([^/]+)$/.exec(path);
   const collectionItem = /^\/api\/demo\/collections\/([^/]+)\/posts\/([^/]+)$/.exec(path);
   const requireUser = () => {
     if (!caller) throw problem(401, "Hãy đăng nhập để tiếp tục.");
@@ -386,6 +404,8 @@ export async function handleCatalog(req, res, path, send, caller, readJson) {
       throw problem(403, "Chỉ quản trị viên có thể thực hiện thao tác này.");
   };
   try {
+    if (creator && req.method === "GET" && uuid.test(creator[1]))
+      return send(res, 200, await creatorPage(creator[1], search));
     if (path === "/api/demo/catalog" && req.method === "GET")
       return send(res, 200, { posts: await withPostAuthors(await catalog(search)) });
     if (group && req.method === "GET" && (!group[2] || uuid.test(group[2]))) {

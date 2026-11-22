@@ -86,7 +86,12 @@ export function createUploadTools(uploadState, esc) {
       uploadState.files.length +
       "/8 tệp" +
       (total ? " | " + fileSize(total) : "");
-    form.querySelector("#upload-add").disabled = uploadState.files.length >= 8;
+    const add = form.querySelector("#upload-add");
+    const hasFiles = uploadState.files.length > 0;
+    add.disabled = uploadState.files.length >= 8;
+    add.classList.toggle("primary", !hasFiles);
+    add.classList.toggle("light", hasFiles);
+    form.querySelector('button[type="submit"]').disabled = !hasFiles;
     container.innerHTML = uploadState.files
       .map((entry, index) => {
         const cover = entry === uploadState.cover,
@@ -232,7 +237,7 @@ export async function upload(
  <label>Thể loại<select name="genre">${genreOptions(genres, draft?.genres)}</select></label>
  <section id="upload-drop" class="upload-drop" aria-label="Kéo thả tệp">
   <input id="upload-picker" type="file" multiple accept=".jpg,.jpeg,.png,.mp4" hidden>
-  <button type="button" id="upload-add" class="btn dark" data-upload-action="add">+ Thêm ảnh/video</button>
+  <button type="button" id="upload-add" class="btn light" data-upload-action="add">+ Thêm ảnh/video</button>
   <span>Kéo và thả vào đây hoặc thêm tệp qua nhiều lượt</span>
   <small>JPG, PNG, MP4 | 8 tệp | 10 MiB/tệp | 40 MiB/bài</small>
  </section>
@@ -243,7 +248,7 @@ export async function upload(
  <section id="upload-price" class="upload-price" hidden><label><span id="upload-price-label"></span>
  <input name="price" type="number" min="1" max="100000000" step="1" inputmode="numeric" placeholder="Ví dụ: 39000" value="${Number(post?.price_vnd) || ""}" disabled></label>
  <output id="upload-price-preview" aria-live="polite"></output><small>Một mức giá bằng VND để mở toàn bộ tệp được bật Premium. Các tệp khác vẫn xem miễn phí.</small></section>
- <button type="submit" class="btn dark">${post ? "Lưu bản nháp" : "Tải lên và lưu nháp"}</button><p data-submit-result role="status" class="muted"></p>
+ <button type="submit" class="btn primary">${post ? "Lưu bản nháp" : "Tải lên và lưu nháp"}</button><p data-submit-result role="status" class="muted"></p>
  </fieldset></form>`;
   return { html, draft };
 }
