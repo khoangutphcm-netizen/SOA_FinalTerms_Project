@@ -835,6 +835,29 @@ textarea {
 .media-stage {
   color: #fff;
 }
+.gallery-player { position: relative; overflow: hidden; border-radius: var(--radius, 16px); }
+.gallery-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid #ffffff85;
+  border-radius: 50%;
+  background: #17231de6;
+  color: #fff;
+  cursor: pointer;
+}
+.gallery-arrow-back { left: 10px; }
+.gallery-arrow-forward { right: 10px; }
+.gallery-arrow:hover { background: #304a38; }
+.gallery-arrow:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+.otp-actions .otp-secondary { background: var(--card); color: var(--ink); border: 1px solid var(--input-border); }
+.otp-actions .otp-secondary:hover { border-color: currentColor; }
+.otp-actions .otp-secondary:disabled { opacity: .6; }
 .gallery-slide {
   animation: gallery-slide-in 0.38s cubic-bezier(0.22, 0.7, 0.25, 1) both;
 }

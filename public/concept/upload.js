@@ -244,7 +244,7 @@ export async function upload(
  <div class="upload-list-head"><strong>Tệp trong tác phẩm</strong><span id="upload-count" aria-live="polite">0/8 tệp</span></div>
  <p id="upload-feedback" class="upload-feedback" aria-live="polite"></p>
  <div id="upload-files" class="upload-files"></div>
- <label class="check"><input name="autoCycle" type="checkbox" ${post?.auto_cycle ? "checked" : ""}> Tự chuyển ảnh mỗi 7 giây khi mở tác phẩm</label>
+ <label class="check"><input name="autoCycle" type="checkbox" ${post?.auto_cycle ? "checked" : ""}> Tự chuyển ảnh và video mỗi 10 giây khi mở tác phẩm</label>
  <section id="upload-price" class="upload-price" hidden><label><span id="upload-price-label"></span>
  <input name="price" type="number" min="1" max="100000000" step="1" inputmode="numeric" placeholder="Ví dụ: 39000" value="${Number(post?.price_vnd) || ""}" disabled></label>
  <output id="upload-price-preview" aria-live="polite"></output><small>Một mức giá bằng VND để mở toàn bộ tệp được bật Premium. Các tệp khác vẫn xem miễn phí.</small></section>

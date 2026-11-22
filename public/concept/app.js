@@ -6,7 +6,7 @@ import { handlePurchase } from "./purchase.js";
 import { createCollectionBuilder } from "./collection-builder.js";
 import { createCollectionPages } from "./collection-pages.js";
 import { setupTheme } from "./theme.js";
-import { galleryFrame as renderGalleryFrame, galleryStrip as renderGalleryStrip } from "./gallery.js";
+import { galleryCycleItems, galleryInterval, galleryFrame as renderGalleryFrame, galleryStrip as renderGalleryStrip } from "./gallery.js";
 import {
   avatar,
   avatarPayload,
@@ -520,7 +520,7 @@ function publishedEditor({ post, media, genres: assigned }, genres) {
   <label>Thể loại<select name="genre">${genreOptions(genres, assigned)}</select></label>
   <label>Ảnh đại diện<select name="cover"><option value="">Giữ ảnh đại diện hiện tại</option>
    ${publicMedia.map((file) => `<option value="${esc(file.id)}">${esc(file.filename)}</option>`).join("")}</select></label>
-  <label class="check"><input name="autoCycle" type="checkbox" ${post.auto_cycle ? "checked" : ""}> Tự chuyển ảnh mỗi 7 giây khi mở tác phẩm</label>
+  <label class="check"><input name="autoCycle" type="checkbox" ${post.auto_cycle ? "checked" : ""}> Tự chuyển ảnh và video mỗi 10 giây khi mở tác phẩm</label>
   <p class="muted">Tệp, trạng thái Premium và giá được giữ nguyên để người mua tiếp tục truy cập nội dung đã mua.</p>
   <button class="btn dark">Lưu thay đổi</button><p role="status" class="muted"></p></form>`
   );
@@ -681,22 +681,16 @@ function updateGallery(direction) {
 }
 function scheduleGallery() {
   clearInterval(galleryTimer);
-  const items = currentMedia.flatMap((file, index) =>
-    file.kind === "IMAGE" && file.url ? [index] : [],
-  );
-  if (
-    !cycleOverrides.get(galleryPost) ||
-    items.length < 2 ||
-    currentMedia[galleryIndex]?.kind === "VIDEO"
-  )
-    return;
+  const items = galleryCycleItems(currentMedia);
+  if (!cycleOverrides.get(galleryPost) || items.length < 2) return;
   galleryTimer = setInterval(() => {
     const panel = document.querySelector("#post-media");
-    if (!panel || panel.contains(document.activeElement) || document.hidden)
-      return;
-    galleryIndex = items[(items.indexOf(galleryIndex) + 1) % items.length];
+    if (!panel || panel.querySelector(":focus-visible") || document.hidden) return;
+    const video = panel.querySelector(".media-stage video");
+    if (video && !video.paused && !video.ended) return;
+    galleryIndex = items.find(index => index > galleryIndex) ?? items[0];
     updateGallery("forward");
-  }, 7000);
+  }, galleryInterval);
 }
 
 function ownPostCards(posts, query = "") {
@@ -1260,6 +1254,16 @@ app.addEventListener("click", async (event) => {
     form.querySelector(selector)?.focus({ preventScroll: true });
     return;
   }
+  const arrow = event.target.closest("[data-gallery-step]");
+  if (arrow && currentMedia.length > 1) {
+    const direction = arrow.dataset.galleryStep;
+    const step = direction === "back" ? -1 : 1;
+    galleryIndex = (galleryIndex + step + currentMedia.length) % currentMedia.length;
+    updateGallery(direction);
+    scheduleGallery();
+    document.querySelector(`[data-gallery-step="${direction}"]`)?.focus({ preventScroll: true });
+    return;
+  }
   const media = event.target.closest("[data-media]");
   if (media) {
     const nextIndex = Number(media.dataset.media);
@@ -1280,7 +1284,7 @@ app.addEventListener("click", async (event) => {
     const enabled = !cycleOverrides.get(galleryPost);
     cycleOverrides.set(galleryPost, enabled);
     control.setAttribute("aria-pressed", String(enabled));
-    control.textContent = enabled ? "Dừng tự chuyển" : "Tự chuyển ảnh";
+    control.textContent = enabled ? "Dừng tự chuyển" : "Tự chuyển mỗi 10 giây";
     scheduleGallery();
     return;
   }
@@ -1616,6 +1620,7 @@ app.addEventListener("submit", async (event) => {
   }
   if (form.id === "purchase-filter") return filterPurchases(form);
   if (form.id === "comments-form") return addPostComment(form);
+  if (form.id === "verify-form" && event.submitter?.value === "resend" && !form.elements.email.reportValidity()) return;
   const status = form.querySelector("[role=status]");
   const buttons = [
     ...form.querySelectorAll("button[type=submit], button:not([type])"),

@@ -42,11 +42,11 @@ export function authForm(
      ? '<label>Email<input name="email" type="email" required maxlength="254" autocomplete="username"></label>'
      : demo
        ? '<label>Tài khoản demo<select name="identifier" autocomplete="username"><option>user1</option><option>user2</option><option>user3</option><option>admin</option></select></label>'
-       : '<label>Tên đăng nhập hoặc email<input name="identifier" type="text" required maxlength="254" autocapitalize="none" autocomplete="username" placeholder="Ví dụ: user1"></label>'
+       : '<label>Email<input name="identifier" type="email" required maxlength="254" autocapitalize="none" autocomplete="username" placeholder="Ví dụ: ban@email.com"></label>'
  }
  <label>Mật khẩu<input name="password" type="password" required ${register ? 'minlength="8"' : ""} maxlength="128" autocomplete="${register ? "new-password" : "current-password"}"></label>
  <div class="button-row"><button class="btn dark">${label}</button>${register || demo ? link("Đăng nhập", "#login") : link("Tạo tài khoản", "#register")}</div>
- ${demo ? '<p class="muted">Dùng mật khẩu của tài khoản demo đã được cấp.</p>' : `<div class="button-row"><a href="#verify">Xác minh email hoặc gửi lại mã</a>${demoDot}</div>`}
+ ${demo ? '<p class="muted">Dùng mật khẩu của tài khoản demo đã được cấp.</p>' : `<div class="button-row otp-actions"><a class="btn otp-secondary" href="#verify">Xác minh email / Gửi lại OTP</a>${demoDot}</div>`}
  <p role="status" class="muted"></p>
  <a href="#home">Tiếp tục với vai trò khách</a>
  </form></section>`;
@@ -55,6 +55,6 @@ export function verifyForm({ heading, esc, verificationEmail }) {
   return `<section class="auth-screen">${heading("Xác minh email")}<form id="verify-form" class="surface edit-form">
  <label>Email<input name="email" type="email" required maxlength="254" autocomplete="email" value="${esc(verificationEmail)}"></label>
  <label>Mã xác minh<input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autocomplete="one-time-code"></label>
- <div class="button-row"><button class="btn dark" name="operation" value="verify">Xác minh</button><button class="btn" name="operation" value="resend" type="submit" formnovalidate>Gửi lại mã</button></div>
+ <div class="button-row otp-actions"><button class="btn primary" type="submit" name="operation" value="verify">Xác minh email</button><button class="btn otp-secondary" name="operation" value="resend" type="submit" formnovalidate>Gửi lại mã OTP</button></div>
  <p role="status" class="muted"></p><div class="button-row"><a href="#login">Đăng nhập</a>${demoDot}</div></form></section>`;
 }

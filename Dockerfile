@@ -8,6 +8,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY *.mjs ./
+COPY grafana-prometheus/service-metrics.mjs ./grafana-prometheus/
 COPY public ./public
 
 USER node
