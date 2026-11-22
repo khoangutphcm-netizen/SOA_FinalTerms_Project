@@ -230,7 +230,7 @@ export async function handleDemo(req, res, path, send) {
     return send(res, 403, { message: "Yêu cầu không hợp lệ." });
   const cookieName = "pck_demo";
   const cookieSettings =
-    "; Path=/api/demo; HttpOnly; SameSite=Strict;" +
+    "; Path=/api/demo; HttpOnly; SameSite=Lax;" +
     (process.env.PCK_SECURE_COOKIE === "1" ? " Secure;" : "") +
     " Max-Age=";
   const token = (req.headers.cookie || "").match(

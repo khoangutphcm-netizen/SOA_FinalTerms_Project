@@ -1,124 +1,171 @@
-# PCK — Website chia sẻ và mua bán nội dung số
+# PCK | Website chia sẻ và mua bán nội dung số
 
-PCK là đồ án cuối kỳ SOA. Khách duyệt ảnh và video, tác giả đăng bài nhiều tệp và chọn tệp Premium, người mua xem lại nội dung trong mục Đã mua. Admin có thể ẩn tạm hoặc gỡ bài do vi phạm. Xem sau cho phép lưu và bỏ lưu bài ngay trong tài khoản.
+PCK là một hệ thống cho phép người dùng khám phá ảnh, video, đăng tác phẩm nhiều tệp, tương tác và mua nội dung Premium. Thanh toán trong đồ án sử dụng ví demo; Stripe Sandbox được dùng để nạp số dư thử nghiệm.
 
-## Trạng thái hiện tại
+## Chức năng chính
 
-Web nhận yêu cầu tại cổng 3100 và chuyển API ứng dụng tới Content. Bốn service chạy ở bốn tiến trình riêng và mỗi service dùng kết nối Neon của mình.
+- Đăng ký, xác minh email bằng OTP, đăng nhập và quản lý hồ sơ.
+- Tìm kiếm, lọc và xem trước tác phẩm; thích, bình luận, báo cáo và lưu Xem sau.
+- Tạo bộ sưu tập; đăng, chỉnh sửa và quản lý tác phẩm ảnh hoặc video.
+- Nạp ví qua Stripe Checkout test, mua bằng ví, xem và tải nội dung đã mua.
+- Quản trị tài khoản, ví demo, bài đăng, báo cáo, thể loại và sự kiện.
+- Thu thập metrics bằng Prometheus và hiển thị dashboard Grafana.
 
-| Service   | Cổng mặc định | Phụ trách                                       |
-| --------- | ------------: | ----------------------------------------------- |
-| Commerce  |          3101 | Mua thử, đơn hàng và quyền xem Premium          |
-| Content   |          3102 | Bài đăng, tệp, tìm kiếm và kiểm duyệt           |
-| Identity  |          3103 | Xác thực tài khoản demo và thông tin người dùng |
-| Community |          3104 | Thích, bình luận, báo cáo và Xem sau            |
+## Kiến trúc
 
-Content gọi các service khác qua HTTP nội bộ. Người dùng đăng ký bằng email và xác minh OTP trước khi đăng nhập. Identity giữ tên hiển thị, giới thiệu và ảnh đại diện. Commerce giữ số dư và lịch sử ví demo. Mua bằng ví ghi đơn `PCK_WALLET_TEST` và cấp quyền xem, tải bản gốc. Mục **Tài khoản → Đã mua** tra cứu đơn theo tên, ngày, giá và trạng thái tải. **Bộ của tôi** quản lý các bộ sưu tập của tài khoản. Tệp gốc, preview và ảnh thu nhỏ được lưu trong `asset_blobs` trên Content DB Neon.
+Gateway phục vụ giao diện và chuyển API ứng dụng tới Content. Content trao đổi HTTP với các service nội bộ; mỗi service sử dụng một PostgreSQL riêng.
 
-**Tài khoản → Số dư** hiển thị ví demo và lịch sử nạp, chi, thu từ bán tác phẩm. Đơn mới trừ ví người mua, cộng ví người bán và cấp quyền tải trong cùng giao dịch Commerce. **Tài khoản → Doanh thu** tổng hợp đơn đã thanh toán theo tháng, năm hoặc toàn thời gian, kèm lượt bán và doanh thu từng tác phẩm. Đơn cũ vẫn được tính vào báo cáo. Số dư cũ được giữ nguyên.
+| Thành phần | Cổng mặc định | Trách nhiệm                                       |
+| ---------- | ------------: | ------------------------------------------------- |
+| Gateway    |          3100 | Giao diện, định tuyến API và webhook Stripe       |
+| Commerce   |          3101 | Ví demo, đơn hàng, thanh toán và quyền mua        |
+| Content    |          3102 | Tác phẩm, tệp, tìm kiếm, bộ sưu tập và kiểm duyệt |
+| Identity   |          3103 | Tài khoản, OTP, hồ sơ và phân quyền               |
+| Community  |          3104 | Thích, bình luận, báo cáo và Xem sau              |
 
-## Việc cần làm theo ưu tiên
+Metrics được cung cấp riêng trên các cổng 9461 đến 9465. Trong Docker Compose, Prometheus và Grafana dùng lần lượt cổng 9090 và 3000 trên localhost.
 
-- **P1: Nghiệp vụ và demo**: Kiểm thử Stripe Checkout sandbox từ giao diện đến webhook và ví, cùng các luồng OTP, đăng nhập, đăng bài, mua và tải. Phương thức thanh toán phụ thuộc cấu hình tài khoản Stripe.
-- **P1: Khởi tạo DB**: `migrate.mjs` chưa nhận dạng được `CREATE TABLE` xuống dòng trong các file Identity, Commerce và Community. Sửa bộ nhận dạng và kiểm thử với bốn DB trống trước khi dùng script; hiện có hướng dẫn chạy SQL thủ công bên dưới.
-- **P1: Dữ liệu và giao diện**: Xem sau lấy 50 bài gần nhất. Đã mua hiển thị toàn bộ quyền mua. Bổ sung phân trang khi thư viện có nhiều tác phẩm.
-- **P1: Bảo vệ xác thực**: `server.mjs` giới hạn đăng nhập, đăng ký, xác minh và gửi lại mã theo đường dẫn chung. Giới hạn thêm theo nguồn hoặc tài khoản để một người không chặn tất cả người khác. `identity-handlers.mjs` trả 429 khi email đang chờ xác minh gửi lại quá sớm, nhưng trả 200 cho email không tồn tại hoặc đã kích hoạt; cần thống nhất phản hồi để tránh lộ trạng thái tài khoản.
-- **P2: Giám sát (đã tích hợp)**: Prometheus thu thập HTTP request metrics từ Gateway và bốn service; Grafana được provision sẵn datasource cùng dashboard PCK khi chạy Docker Compose. Metrics chỉ mở trên mạng Compose. Xem [hướng dẫn chạy và giám sát](HUONG-DAN-CHAY-PCK.md#3-prometheus-và-grafana).
-- **P2: Độ ổn định**: Phiên đăng nhập mất khi khởi động lại. Một tiến trình dừng sẽ làm launcher dừng toàn bộ hệ thống. Cần cân nhắc lưu phiên bền vững và cơ chế phục hồi service.
-- **P2: Kiểm thử giao diện**: Kiểm tra luồng thực tế, màn hình nhỏ, trạng thái tải và lỗi của từng chức năng. Chưa có kết quả kiểm thử trình duyệt với DB và SMTP thật.
-- **P3: Dọn giao diện cũ**: `public/concept/index.html` là giao diện chính, `public/index.html` kiểm tra DB; `public/demo.html` là trang demo cũ không được khai báo route. Xác nhận còn cần trước khi xóa.
+## Yêu cầu
 
-### Bàn giao kiểm thử
+- Bốn PostgreSQL riêng, có thể dùng Neon. Các kết nối cần hỗ trợ TLS.
+- Với chế độ Node: Node.js 22 trở lên, npm và FFmpeg có `drawtext` và `libx264` để tạo preview.
+- Với Docker: Docker Desktop và Docker Compose. Image đã có Node.js, FFmpeg và font cần thiết.
+- SMTP để gửi OTP. Stripe CLI và khóa sandbox để nạp ví qua Stripe. Ngrok cần tài khoản và authtoken nếu trình bày qua Internet.
 
-- Ngày 21/11/2026, `node --test test/*.test.mjs` đạt 11/11. Test tự động dùng mock cho các phần tích hợp.
-- Đã kiểm tra Neon, gửi OTP qua SMTP thật và webhook Stripe test. Cần kiểm thử lại các luồng đầy đủ trên trình duyệt và lưu bằng chứng. Cấu hình DB, SMTP, Stripe và FFmpeg theo môi trường của từng máy.
-- Dùng hai tài khoản để thử đăng ký, OTP sai/hết hạn/gửi lại, đăng bài có ảnh và video Premium, xem preview, mua thử và tải. Kiểm tra cả tài khoản chưa mua và khách không tải được tệp Premium.
-- Thử mất kết nối SMTP hoặc service, thiếu tệp Premium, phản hồi mua bị gián đoạn, hơn 50 bài đã lưu hoặc đã mua, cùng giao diện trên màn hình nhỏ. Ghi lại kết quả thực tế và lỗi trước khi demo.
+## Cấu hình ban đầu
 
-## Cài đặt và chạy
+Mở PowerShell trong thư mục dự án:
 
-Các lệnh dưới đây dùng PowerShell tại thư mục dự án.
+```powershell
+Copy-Item .env.example .env
+npm ci
+```
 
-1. Cài Node.js 22 trở lên, kiểm tra `node --version` và `npm --version`, sau đó cài dependencies:
+Nếu đã có `.env`, không chạy lệnh sao chép đè file. `npm ci` chỉ cần cho chế độ Node, không bắt buộc với Docker.
+
+Điền các biến sau trong `.env`:
+
+| Biến                                                                                               | Mục đích                                                           |
+| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `IDENTITY_DATABASE_URL`, `CONTENT_DATABASE_URL`, `COMMERCE_DATABASE_URL`, `COMMUNITY_DATABASE_URL` | Bốn chuỗi kết nối PostgreSQL riêng                                 |
+| `PCK_OTP_SECRET`                                                                                   | Khóa ngẫu nhiên ổn định, ít nhất 32 ký tự                          |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`                 | Cấu hình gửi email OTP                                             |
+| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`                                                       | Khóa test Stripe và signing secret của webhook                     |
+| `PCK_PUBLIC_URL`                                                                                   | URL gốc để Stripe quay lại; local mặc định `http://127.0.0.1:3100` |
+| `PORT`                                                                                             | Cổng Gateway, mặc định 3100                                        |
+| `GRAFANA_ADMIN_PASSWORD`                                                                           | Mật khẩu Grafana khi dùng Compose; nên đặt trước lần chạy đầu      |
+
+Với Gmail, dùng SMTP `smtp.gmail.com`, cổng `587`, `SMTP_SECURE=0` và App Password. Không đưa `.env`, mật khẩu hoặc khóa lên Git. Nếu FFmpeg không nằm trong PATH, đặt `PCK_FFMPEG_PATH` thành đường dẫn đầy đủ tới executable trên máy chạy Content.
+
+### Khởi tạo cơ sở dữ liệu
+
+Với bốn DB trống, chạy lần lượt các file SQL tương ứng trên từng DB: [Identity](migrations/01_identity.sql), [Content](migrations/02_content.sql), [Commerce](migrations/03_commerce.sql), [Community](migrations/04_community.sql). Sau đó chạy:
+
+```powershell
+node --env-file=.env migrate-gallery.mjs
+```
+
+Với DB đã có dữ liệu, kiểm tra phiên bản schema và áp dụng các migration còn thiếu theo thứ tự. Không chạy lại SQL khởi tạo lên DB đang sử dụng. Các migration riêng gồm `06` đến `10` cho Content hoặc Identity và `11`, `13`, `14`, `15` cho Commerce; xem nội dung từng file trong [migrations](migrations/) trước khi áp dụng. Để kiểm tra các bảng khởi tạo mà không thay đổi DB:
+
+```powershell
+node --env-file=.env migrate.mjs
+```
+
+Lệnh chỉ kiểm tra sự hiện diện bảng, không xác nhận đầy đủ cột, ràng buộc hoặc migration. Việc khởi tạo DB trống vẫn cần được kiểm thử theo môi trường triển khai.
+
+## Các cách chạy
+
+Các script sau chạy ở foreground. Dừng từng terminal bằng `Ctrl+C`. Trên Windows, có thể thay lệnh PowerShell bằng `start-pck.bat` với cùng tham số `-Mode`.
+
+### 1. Node.js trên máy local
+
+```powershell
+./start-pck.ps1 -Mode Local
+```
+
+Hoặc chạy `npm start`. Mở [PCK](http://127.0.0.1:3100) và [kiểm tra kết nối DB](http://127.0.0.1:3100/db-check). Launcher khởi chạy Gateway cùng bốn service. Khi một tiến trình dừng bất ngờ, launcher dừng cả cụm; phiên đăng nhập trong RAM mất khi Content khởi động lại.
+
+### 2. Docker Compose
+
+Khởi động Docker Desktop và chạy:
+
+```powershell
+./start-pck.ps1 -Mode Docker
+```
+
+Hoặc chạy `docker compose up --build`. Mở [PCK](http://127.0.0.1:3100), [Prometheus](http://127.0.0.1:9090/targets) và [Grafana](http://127.0.0.1:3000). Grafana dùng user `admin` và mật khẩu `GRAFANA_ADMIN_PASSWORD`; Compose mặc định là `admin` nếu chưa đặt. Dashboard nằm tại **Dashboards > PCK > PCK Service Overview**. Cần xác nhận 5 target có trạng thái **UP**.
+
+### 3. Node.js và ngrok
+
+Cấu hình ngrok một lần bằng `ngrok config add-authtoken <TOKEN>` hoặc đặt `NGROK_AUTHTOKEN` trong `.env`, sau đó chạy:
+
+```powershell
+./start-pck.ps1 -Mode Ngrok
+```
+
+Hoặc chạy `npm run ngrok`. Mở URL HTTPS được in sau `PCK ngrok`. Launcher tự cấu hình URL Stripe trả về và cookie an toàn. Agent API mặc định dùng cổng 4040; đặt `PCK_NGROK_API_PORT` nếu đã thay đổi. Kiểm tra URL từ một mạng khác trước khi báo cáo.
+
+### 4. Prometheus và Grafana ngoài Docker
+
+Chạy PCK bằng Node trước. Tạo `prometheus-local.yml` trong thư mục Prometheus:
+
+```yaml
+global:
+  scrape_interval: 15s
+scrape_configs:
+  - job_name: pck
+    static_configs:
+      - targets:
+          [
+            "127.0.0.1:9461",
+            "127.0.0.1:9462",
+            "127.0.0.1:9463",
+            "127.0.0.1:9464",
+            "127.0.0.1:9465",
+          ]
+```
+
+Mở terminal tại thư mục Prometheus, chạy `./prometheus.exe --config.file=prometheus-local.yml --web.listen-address=127.0.0.1:9090`. Trong terminal khác tại thư mục gốc Grafana, chạy `./bin/grafana.exe server`. Tại Grafana, thêm Prometheus data source với URL `http://127.0.0.1:9090` và UID `prometheus`, sau đó import `grafana-prometheus/grafana/dashboards/pck-overview.json`. Mở Targets để xác nhận 5 service được thu thập. Không dùng trực tiếp file cấu hình Prometheus của Compose vì file đó chứa hostname Docker.
+
+## Cấu hình và thử Stripe Sandbox
+
+1. Chọn Stripe Sandbox và đặt test secret key vào `STRIPE_SECRET_KEY`. Khóa test bắt đầu bằng `sk_test_`, `rk_test_` hoặc `rkcs_test_` tùy môi trường.
+2. Cài Stripe CLI, đăng nhập và chọn cùng sandbox. Mở terminal riêng, chạy:
 
    ```powershell
-   npm install
-   Copy-Item .env.example .env
+   ./start-pck.ps1 -Mode Stripe
    ```
 
-   Nếu đã có `.env`, giữ file hiện tại và bỏ qua lệnh sao chép.
+   Nếu Gateway dùng cổng khác, thêm `-Port <cong>`. Giữ listener mở. Sao chép signing secret `whsec_...` do CLI cấp vào `STRIPE_WEBHOOK_SECRET` trong `.env` và khởi động lại PCK. Key và webhook phải thuộc cùng sandbox.
 
-2. Mở `.env`, điền bốn connection string PostgreSQL vào `IDENTITY_DATABASE_URL`, `CONTENT_DATABASE_URL`, `COMMERCE_DATABASE_URL`, `COMMUNITY_DATABASE_URL`. Mỗi service cần một DB riêng; giữ nguyên tùy chọn TLS trong connection string. Điền thêm SMTP và `PCK_OTP_SECRET` theo phần xác minh email bên dưới. Không đưa `.env` lên Git.
+3. Đăng nhập, mở **Tài khoản > Số dư > Nạp qua Stripe test**. Dùng thẻ test `4242 4242 4242 4242`, ngày hết hạn trong tương lai và CVC ba chữ số bất kỳ.
+4. Kiểm tra listener nhận `checkout.session.completed` với HTTP 200, rồi tải lại ví để xem số dư và lịch sử. Hủy hoặc chưa thanh toán không cộng ví. Nếu webhook chưa chạy lúc thanh toán, cần gửi lại sự kiện hoặc đối soát giao dịch.
 
-3. Với bốn DB trống riêng, dùng SQL Editor của từng DB để chạy đúng file tương ứng: [Identity](migrations/01_identity.sql), [Content](migrations/02_content.sql), [Commerce](migrations/03_commerce.sql), [Community](migrations/04_community.sql). Sau đó chạy lệnh sau để thêm cấu hình gallery cho Content:
+Khi dùng webhook HTTPS đăng ký trên Stripe Dashboard, trỏ endpoint tới `/api/stripe/webhook` của URL công khai và dùng signing secret của endpoint đó. Không dùng khóa live hoặc thẻ thật cho demo.
 
-   ```powershell
-   node --env-file=.env migrate-gallery.mjs
-   ```
+## Kiểm thử
 
-   `migrate.mjs` hiện có lỗi nhận dạng SQL như ghi ở phần việc cần làm. Với DB đã có dữ liệu, áp dụng riêng các migration còn thiếu. Chạy [10_identity_profile.sql](migrations/10_identity_profile.sql) trên Identity. Commerce có các migration [11_commerce_wallet.sql](migrations/11_commerce_wallet.sql), [13_commerce_admin_credit.sql](migrations/13_commerce_admin_credit.sql), [14_commerce_admin_debit.sql](migrations/14_commerce_admin_debit.sql) và [15_commerce_seller_earnings.sql](migrations/15_commerce_seller_earnings.sql) theo thứ tự. Content có các migration riêng cho [kiểm duyệt](migrations/07_content_moderation.sql) và [preview](migrations/08_content_preview.sql).
+```powershell
+./start-pck.ps1 -Mode Test
+```
 
-4. Cài FFmpeg nếu cần tạo preview Premium, theo phần bên dưới. Nếu cần tài khoản admin demo trên DB riêng, chạy `node --env-file=.env seed-demo.mjs` rồi lấy thông tin tại `.pck-demo/accounts.json`.
+Hoặc chạy `node --test test/*.test.mjs`. Bộ test bao gồm OTP, quyền truy cập, xử lý mua và webhook Stripe; các tích hợp trong test được mock. Khi demo, kiểm tra thêm OTP qua email, đăng tác phẩm, nạp Stripe, mua và tải bằng hai tài khoản, cùng các chức năng quản trị.
 
-5. Chạy `npm start`. Mở [PCK](http://127.0.0.1:3100/demo) hoặc [Kiểm tra kết nối DB](http://127.0.0.1:3100/db-check). Tạo tài khoản và xác minh email để đăng nhập. Dừng bằng Ctrl+C. Nếu cần đổi cổng, dùng `PORT` cho web hoặc `COMMERCE_PORT`, `CONTENT_PORT`, `IDENTITY_PORT`, `COMMUNITY_PORT` cho từng service.
+## Lưu ý vận hành
 
-Chạy test tự động bằng `node --test test/*.test.mjs`. Test dùng mock; cần kiểm thử thêm với DB và SMTP thật.
+- Nếu cổng bận, dừng phiên tương ứng trước khi chạy lại. Không cần dừng các ứng dụng Node khác.
+- Nếu ví chưa tăng sau Stripe, kiểm tra listener, signing secret, sandbox và HTTP response của webhook.
+- Nếu preview không tạo được, kiểm tra FFmpeg, `drawtext`, `libx264` và đường dẫn font.
+- Phiên web hiện lưu trong RAM, vì vậy cần đăng nhập lại sau khi Content khởi động lại.
+- Các script tạo tài khoản demo dùng `node --env-file=.env seed-demo.mjs`; thông tin ở `.pck-demo/accounts.json`. Script không ghi đè tài khoản đã có mật khẩu khác.
 
-### Xác minh email
+## Cấu trúc dự án
 
-Điền `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` trong `.env`. Dùng `SMTP_SECURE=1` với SMTP TLS trực tiếp (thường cổng 465), hoặc `0` với STARTTLS (thường cổng 587). Đặt `PCK_OTP_SECRET` thành chuỗi ngẫu nhiên ít nhất 32 ký tự và giữ bí mật, ổn định giữa các lần chạy. Tạo chuỗi bằng `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Không đưa các giá trị này lên Git.
+- `server.mjs`, `start.mjs`: Gateway và launcher.
+- `content-*.mjs`, `identity-*.mjs`, `community-handlers.mjs`, `commerce-*.mjs`: nghiệp vụ service.
+- `public/concept/`: giao diện chính.
+- `migrations/`: schema và migration PostgreSQL.
+- `grafana-prometheus/`: metrics, cấu hình thu thập và dashboard.
+- `test/`: kiểm thử tự động.
 
-Mã gồm 6 chữ số, hết hạn sau 10 phút và bị khóa sau 5 lần nhập sai. Có thể gửi mã mới sau 60 giây. Tài khoản cũ đang chờ xác minh dùng liên kết xác minh trên màn đăng nhập để yêu cầu mã. Nếu gửi email thất bại, kiểm tra cấu hình SMTP rồi thử lại.
-
-### Nạp ví qua Stripe sandbox
-
-1. Tạo hoặc chọn sandbox trên Stripe Dashboard, mở mục API keys và lấy secret key bắt đầu bằng `sk_test_` hoặc restricted key bắt đầu bằng `rk_test_`. Restricted key cần quyền tạo Checkout Session. Điền vào `STRIPE_SECRET_KEY` trong `.env`. Không đưa khóa lên Git hoặc gửi qua chat. `PCK_PUBLIC_URL` mặc định là `http://127.0.0.1:3100`; nếu demo qua tunnel HTTPS, đặt giá trị này thành URL gốc của tunnel.
-2. Cài [Stripe CLI](https://docs.stripe.com/cli/install). Mở PowerShell mới và chạy `stripe login`, sau đó hoàn tất đăng nhập trong trình duyệt. Chọn cùng sandbox với test key ở bước 1.
-3. Chạy lệnh sau trong PowerShell và giữ terminal này mở để chuyển webhook về máy local:
-
-   ```powershell
-   stripe listen '--events=checkout.session.completed,checkout.session.async_payment_succeeded' --forward-to http://127.0.0.1:3100/api/stripe/webhook
-   ```
-
-4. Điền `STRIPE_WEBHOOK_SECRET` bằng signing secret `whsec_...` do lệnh trên cung cấp. Đây là secret của CLI, không phải API key. Trong terminal khác, chạy hoặc khởi động lại ứng dụng bằng `npm start` sau khi sửa `.env`.
-5. Đăng nhập PCK, vào **Tài khoản > Số dư**, chọn **Nạp qua Stripe test**. Trên Stripe Checkout, dùng [thẻ Visa test](https://docs.stripe.com/testing):
-   - Số thẻ: `4242 4242 4242 4242`.
-   - Ngày hết hạn: ngày bất kỳ trong tương lai, ví dụ `12/34`.
-   - CVC: ba chữ số bất kỳ, ví dụ `123`. Các ô thông tin khác có thể điền tùy ý.
-
-   Số dư chỉ được cộng khi webhook hợp lệ xác nhận thanh toán thành công. Nếu vừa quay về mà số dư chưa đổi, đợi webhook và tải lại trang. Trong terminal Stripe CLI, kiểm tra event `checkout.session.completed` trả HTTP 200.
-
-Đây là thẻ và giao dịch test, không chuyển tiền thật. Không nhập thông tin thẻ thật hoặc dùng khóa live. Nút **Nạp thử** vẫn hoạt động riêng để demo. Với endpoint HTTPS công khai, cấu hình webhook `/api/stripe/webhook` trong Stripe Dashboard test mode và dùng signing secret tương ứng. Giao dịch hoàn tất khi webhook chưa hoạt động cần được đối soát riêng, không tự cộng khi bật webhook sau đó.
-
-Tên hiển thị trên Checkout hiện được đặt trong `branding_settings.display_name` của `commerce-stripe.mjs`. Để đổi tên, sửa giá trị này, khởi động lại ứng dụng và tạo Checkout Session mới. Tên hiển thị trong Stripe Dashboard có thể khác tên được đặt cho từng session.
-
-Nếu thanh toán thành công nhưng ví chưa tăng:
-
-- Kiểm tra Stripe CLI đang chạy và event trả HTTP 200. Trong PowerShell, giữ nguyên dấu nháy quanh `--events=...` để danh sách sự kiện không bị tách sai.
-- Kiểm tra `STRIPE_WEBHOOK_SECRET` là secret của CLI đang dùng, CLI và API key thuộc cùng sandbox, rồi khởi động lại ứng dụng sau khi sửa `.env`.
-- Nếu vừa quay về từ Checkout, đợi webhook xử lý rồi tải lại trang Số dư. Không thanh toán lại nhiều lần để thử xử lý giao dịch cũ.
-
-### Preview Premium
-
-Với Content DB từ phiên bản lưu local, dừng bản app cũ rồi chạy `node --env-file=.env migrate-content-media.mjs` trên máy còn tệp gốc. Lệnh tạo bảng trên Content DB, chuyển file và báo số file còn thiếu. Chạy lại được nếu trước đó chuyển chưa xong. Bản app mới đọc tệp qua kết nối Content DB.
-
-Với Content DB đã có dữ liệu, chạy `08_content_preview.sql` trong thư mục `migrations/` trên Neon Content. DB tạo mới từ SQL khởi tạo đã có cột này. Cài FFmpeg hỗ trợ `drawtext` và `libx264` trên máy chạy Content, rồi đưa FFmpeg vào PATH hoặc đặt `PCK_FFMPEG_PATH` bằng đường dẫn tuyệt đối tới executable. Mặc định dùng Arial trong thư mục Fonts của Windows hoặc DejaVu Sans trên Linux. Nếu cần đổi font, đặt `PCK_PREVIEW_FONT_DIR` (thư mục tuyệt đối) và `PCK_PREVIEW_FONT_FILE` (tên file font).
-
-Sau khi cài, mở terminal mới và kiểm tra `ffmpeg -version`, `ffmpeg -filters` để tìm `drawtext`, và `ffmpeg -encoders` để tìm `libx264`. Nếu đặt `PCK_FFMPEG_PATH` thay cho PATH, gọi executable tại đường dẫn đó để kiểm tra.
-
-Khi lưu nháp, Content tạo ảnh preview tối đa 640 px hoặc video không tiếng tối đa 480 px và 10 giây, có watermark PCK. Chọn giây bắt đầu riêng cho mỗi video Premium. Bài đã đăng từ trước giữ thẻ khóa nếu chưa có preview.
-
-### Chạy bằng Docker Compose hoặc ngrok
-
-Chạy một trong hai chế độ từ thư mục dự án. Cả hai dùng bốn kết nối Neon trong `.env`, nên có cùng dữ liệu. Nếu cổng 3100 đang được dùng, dừng phiên PCK cũ trước. Đặt `PORT` trong `.env` nếu muốn dùng cổng khác.
-
-| Chế độ                                | Chạy bằng một lệnh                       | Mở trang                          |
-| ------------------------------------- | ---------------------------------------- | --------------------------------- |
-| Docker Desktop đang chạy              | `docker compose up --build --menu=false` | `http://127.0.0.1:3100`           |
-| Node.js, dependencies và ngrok đã cài | `npm run ngrok`                          | URL HTTPS in sau dòng `PCK ngrok` |
-
-**Dừng bằng Ctrl+C** trong terminal đã chạy lệnh. Compose chạy Gateway và bốn service trong các container riêng, kèm FFmpeg và font. Máy chỉ cần Docker Desktop để dùng chế độ này. Chế độ ngrok khởi chạy PCK bằng Node cùng tunnel trong một terminal, tự dùng URL HTTPS cho cookie và URL quay về từ Stripe.
-
-Ngrok cần authtoken một lần. Chạy `ngrok config add-authtoken <TOKEN>` hoặc điền `NGROK_AUTHTOKEN` trong `.env`. Launcher dùng Agent API của ngrok tại `127.0.0.1:4040` để lấy URL. Nếu bạn đã đổi cổng Agent API, đặt `PCK_NGROK_API_PORT` bằng cổng đó.
-
-Khi test Stripe trên Docker local, dùng Stripe CLI như hướng dẫn trên. Với bản ngrok, có thể đăng ký `https://<tên-miền-ngrok>/api/stripe/webhook` trong Stripe Sandbox và đặt signing secret của endpoint đó vào `.env` trước khi khởi động PCK.
+[hướng dẫn triển khai](HOW-TO-RUN.md), [đặc tả Use Case](presentation\dac-ta-usecase.pdf) và [slide trình bày](presentation\presentation.pptx)

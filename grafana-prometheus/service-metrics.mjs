@@ -83,6 +83,6 @@ export function createServiceMetrics(service, port) {
     });
     res.end(render());
   });
-  server.listen(port, "0.0.0.0", () => console.log(`PCK metrics ${service}: ${port}`));
+  server.listen(port, process.env.METRICS_BIND_HOST || "127.0.0.1", () => console.log(`PCK metrics ${service}: ${port}`));
   return { recordRequest, server };
 }

@@ -6,7 +6,12 @@ import { handlePurchase } from "./purchase.js";
 import { createCollectionBuilder } from "./collection-builder.js";
 import { createCollectionPages } from "./collection-pages.js";
 import { setupTheme } from "./theme.js";
-import { galleryCycleItems, galleryInterval, galleryFrame as renderGalleryFrame, galleryStrip as renderGalleryStrip } from "./gallery.js";
+import {
+  galleryCycleItems,
+  galleryInterval,
+  galleryFrame as renderGalleryFrame,
+  galleryStrip as renderGalleryStrip,
+} from "./gallery.js";
 import {
   avatar,
   avatarPayload,
@@ -40,7 +45,7 @@ const price = (p) =>
     ? Number(p.price_vnd).toLocaleString("vi-VN") + " ₫"
     : "Miễn phí";
 const postLink = (p) => "#post/" + encodeURIComponent(p.id);
-const creatorLink = id => "#creator/" + encodeURIComponent(id);
+const creatorLink = (id) => "#creator/" + encodeURIComponent(id);
 const kindNames = { IMAGE: "Ảnh", VIDEO: "Video", AUDIO: "Âm thanh" };
 let user = null,
   version = 0,
@@ -143,7 +148,8 @@ function notice(text) {
   noticeTimer = setTimeout(() => box.classList.remove("show"), 3700);
 }
 function button(label, action, id = "", next = "") {
-  const style = action === "test-purchase" || action === "publish" ? "primary" : "light";
+  const style =
+    action === "test-purchase" || action === "publish" ? "primary" : "light";
   return `<button type="button" class="btn ${style}" data-action="${action}" data-id="${esc(id)}" data-next="${esc(next)}">${esc(label)}</button>`;
 }
 function card(p, { quickSave = false, compact = false } = {}) {
@@ -181,10 +187,14 @@ function card(p, { quickSave = false, compact = false } = {}) {
       : cover && p.cover_kind === "IMAGE"
         ? `<img src="${cover}" alt="" loading="lazy">`
         : "<span>Chưa có ảnh bìa</span>"
-  }${compact ? `<div class="catalog-card-overlay">
+  }${
+    compact
+      ? `<div class="catalog-card-overlay">
     ${showDetails ? `<div class="catalog-card-reveal" id="${infoId}"><div class="catalog-card-detail-row">${metadata ? `<span>${esc(metadata)}</span>` : ""}${paid ? `<strong>${esc(price(p))}</strong>` : ""}</div></div>` : ""}
     <div class="catalog-card-caption"><h3>${esc(p.title)}</h3><span class="catalog-card-tier${paid ? " is-paid" : ""}">${paid ? "Trả phí" : "Miễn phí"}</span></div>
-  </div>` : ""}</div>
+  </div>`
+      : ""
+  }</div>
   ${
     compact
       ? ""
@@ -202,14 +212,18 @@ const grid = (posts, msg = "Chưa có tác phẩm nào.", options) =>
 async function creatorPage(id, params) {
   try {
     const query = new URLSearchParams({ page: params.get("page") ?? "1" });
-    const { profile, posts, page, hasMore } = await api("creators/" + encodeURIComponent(id) + "?" + query);
+    const { profile, posts, page, hasMore } = await api(
+      "creators/" + encodeURIComponent(id) + "?" + query,
+    );
     const href = creatorLink(profile.id);
-    const pagination = page > 1 || hasMore
-      ? `<nav class="button-row creator-pagination" aria-label="Trang tác phẩm của người đăng">
+    const pagination =
+      page > 1 || hasMore
+        ? `<nav class="button-row creator-pagination" aria-label="Trang tác phẩm của người đăng">
           ${page > 1 ? link("Trang trước", href + "?page=" + (page - 1)) : ""}
           <span>Trang ${page}</span>
           ${hasMore ? link("Trang sau", href + "?page=" + (page + 1)) : ""}
-        </nav>` : "";
+        </nav>`
+        : "";
     return `<div class="catalog-page creator-page">
       <header class="surface creator-header">
         ${avatar(profile, esc)}
@@ -224,7 +238,11 @@ async function creatorPage(id, params) {
       </section></div>`;
   } catch (error) {
     if (error.status !== 404) throw error;
-    return heading("Hồ sơ không khả dụng", "", link("Về Khám phá", "#" + browseRoute()));
+    return heading(
+      "Hồ sơ không khả dụng",
+      "",
+      link("Về Khám phá", "#" + browseRoute()),
+    );
   }
 }
 function collectionCover(group) {
@@ -525,8 +543,14 @@ function publishedEditor({ post, media, genres: assigned }, genres) {
   <button class="btn dark">Lưu thay đổi</button><p role="status" class="muted"></p></form>`
   );
 }
-const galleryFrame = (media, i) => renderGalleryFrame(media, i, { empty, esc, kindNames });
-const galleryStrip = (media, selected) => renderGalleryStrip(media, selected, { esc, kindNames, autoCycle: Boolean(cycleOverrides.get(galleryPost)) });
+const galleryFrame = (media, i) =>
+  renderGalleryFrame(media, i, { empty, esc, kindNames });
+const galleryStrip = (media, selected) =>
+  renderGalleryStrip(media, selected, {
+    esc,
+    kindNames,
+    autoCycle: Boolean(cycleOverrides.get(galleryPost)),
+  });
 
 const likeButtonText = (liked, count) =>
   `${liked ? "Bỏ thích" : "Thích"} | ${count}`;
@@ -603,7 +627,9 @@ async function detail(id) {
     ? `<a class="post-author creator-link" href="${creatorLink(post.author_id)}">
          ${avatar({ id: post.author_id, alias: author, avatarVersion: post.authorAvatarVersion }, esc)}
          <span>${esc(author)}</span></a>`
-    : author ? `<p class="post-author">${esc(author)}</p>` : "";
+    : author
+      ? `<p class="post-author">${esc(author)}</p>`
+      : "";
   const balance = data.walletBalance ?? null;
   const amount = Number(post.price_vnd);
   const walletDetails =
@@ -614,7 +640,11 @@ async function detail(id) {
       : `<div class="checkout-balance"><span>Số dư demo <strong>${money(balance)}</strong></span>${
           balance < amount
             ? `<span>Còn thiếu <strong>${money(amount - balance)}</strong></span>` +
-              link("Nạp thêm số dư", "#account/wallet?post=" + encodeURIComponent(id), "primary")
+              link(
+                "Nạp thêm số dư",
+                "#account/wallet?post=" + encodeURIComponent(id),
+                "primary",
+              )
             : `<span>Sau khi mua <strong>${money(balance - amount)}</strong></span>`
         }</div>`;
   const form = (name, label) =>
@@ -685,10 +715,11 @@ function scheduleGallery() {
   if (!cycleOverrides.get(galleryPost) || items.length < 2) return;
   galleryTimer = setInterval(() => {
     const panel = document.querySelector("#post-media");
-    if (!panel || panel.querySelector(":focus-visible") || document.hidden) return;
+    if (!panel || panel.querySelector(":focus-visible") || document.hidden)
+      return;
     const video = panel.querySelector(".media-stage video");
     if (video && !video.paused && !video.ended) return;
-    galleryIndex = items.find(index => index > galleryIndex) ?? items[0];
+    galleryIndex = items.find((index) => index > galleryIndex) ?? items[0];
     updateGallery("forward");
   }, galleryInterval);
 }
@@ -696,7 +727,9 @@ function scheduleGallery() {
 function ownPostCards(posts, query = "") {
   if (!posts.length)
     return empty(
-      query ? "Không tìm thấy tác phẩm phù hợp." : "Bạn chưa đăng tác phẩm nào.",
+      query
+        ? "Không tìm thấy tác phẩm phù hợp."
+        : "Bạn chưa đăng tác phẩm nào.",
     );
   return `<div class="own-post-grid">${posts
     .map((post) => {
@@ -713,8 +746,11 @@ function ownPostCards(posts, query = "") {
       <a href="${postLink(post)}" class="own-post-link">
         <div class="own-post-cover">${media}<span ${media ? "hidden" : ""}>Chưa có hình xem trước</span></div>
         <div class="own-post-copy"><span>${esc(postStatus(post))}</span><h3>${esc(post.title)}</h3>
-          ${post.sales ? `<div class="own-post-sales"><span>${post.sales.paidCount.toLocaleString("vi-VN")} lượt bán</span><strong>${money(post.sales.revenueVnd)}</strong></div>`
-            : '<p class="own-post-sales muted">Số liệu tạm thời không khả dụng.</p>'}</div>
+          ${
+            post.sales
+              ? `<div class="own-post-sales"><span>${post.sales.paidCount.toLocaleString("vi-VN")} lượt bán</span><strong>${money(post.sales.revenueVnd)}</strong></div>`
+              : '<p class="own-post-sales muted">Số liệu tạm thời không khả dụng.</p>'
+          }</div>
       </a>
       <div class="button-row post-actions">${postActions(post)}</div>
     </article>`;
@@ -738,7 +774,9 @@ function searchOwnPosts(input, delay = 250) {
       const { posts } = await api("posts?" + new URLSearchParams({ q: query }));
       if (request !== ownPostsRequest || !input.isConnected) return;
       results.innerHTML = ownPostCards(posts, query);
-      status.textContent = posts.length ? `Hiển thị ${posts.length} tác phẩm.` : "";
+      status.textContent = posts.length
+        ? `Hiển thị ${posts.length} tác phẩm.`
+        : "";
     } catch (error) {
       if (request === ownPostsRequest && input.isConnected)
         status.textContent = error.message;
@@ -749,7 +787,8 @@ function searchOwnPosts(input, delay = 250) {
   }, delay);
 }
 
-let revenueTimer, revenueRequest = 0;
+let revenueTimer,
+  revenueRequest = 0;
 function filterRevenue(form, delay = 0) {
   clearTimeout(revenueTimer);
   const request = ++revenueRequest;
@@ -760,7 +799,8 @@ function filterRevenue(form, delay = 0) {
   params.set("sort", form.elements.sort.value);
   const results = app.querySelector("#revenue-results");
   const status = app.querySelector("#revenue-status");
-  const current = () => request === revenueRequest && form.isConnected && location.hash === route;
+  const current = () =>
+    request === revenueRequest && form.isConnected && location.hash === route;
   results.setAttribute("aria-busy", "true");
   status.textContent = "Đang cập nhật kết quả…";
   revenueTimer = setTimeout(async () => {
@@ -772,15 +812,18 @@ function filterRevenue(form, delay = 0) {
       history.replaceState(history.state, "", "#account/revenue?" + params);
       status.textContent = "";
     } catch (error) {
-      if (current()) status.textContent = `${error.message} Nhấn Enter trong ô tìm để thử lại.`;
+      if (current())
+        status.textContent = `${error.message} Nhấn Enter trong ô tìm để thử lại.`;
     } finally {
-      if (request === revenueRequest && form.isConnected) results.removeAttribute("aria-busy");
+      if (request === revenueRequest && form.isConnected)
+        results.removeAttribute("aria-busy");
     }
   }, delay);
 }
 
 async function account(tab = "profile", query) {
-  if (!user) return loginRequired("Đăng nhập để xem tác phẩm và nội dung của bạn.");
+  if (!user)
+    return loginRequired("Đăng nhập để xem tác phẩm và nội dung của bạn.");
   const tabs = [
     ["profile", "Hồ sơ"],
     ["posts", "Tác phẩm của tôi"],
@@ -815,7 +858,12 @@ async function account(tab = "profile", query) {
   } else if (tab === "purchases") {
     content = purchaseLibrary((await api("purchases")).posts, esc, postLink);
   } else if (tab === "wallet") {
-    content = walletPage(await api("wallet"), esc, query.get("post"), query.get("stripe"));
+    content = walletPage(
+      await api("wallet"),
+      esc,
+      query.get("post"),
+      query.get("stripe"),
+    );
   } else if (tab === "revenue") {
     try {
       content = revenuePage(await api("revenue?" + query), esc, postLink);
@@ -850,9 +898,27 @@ async function account(tab = "profile", query) {
     content
   );
 }
-const { newCollection, wireCollectionBuilder } = createCollectionBuilder({ getUser: () => user, loginRequired, heading, esc, kindNames, api });
+const { newCollection, wireCollectionBuilder } = createCollectionBuilder({
+  getUser: () => user,
+  loginRequired,
+  heading,
+  esc,
+  kindNames,
+  api,
+});
 
-const { groupPage, refreshCollectionPicker, openCollectionPicker } = createCollectionPages({ api, heading, link, grid, esc, card, button, empty, app });
+const { groupPage, refreshCollectionPicker, openCollectionPicker } =
+  createCollectionPages({
+    api,
+    heading,
+    link,
+    grid,
+    esc,
+    card,
+    button,
+    empty,
+    app,
+  });
 
 function more() {
   return (
@@ -1258,10 +1324,13 @@ app.addEventListener("click", async (event) => {
   if (arrow && currentMedia.length > 1) {
     const direction = arrow.dataset.galleryStep;
     const step = direction === "back" ? -1 : 1;
-    galleryIndex = (galleryIndex + step + currentMedia.length) % currentMedia.length;
+    galleryIndex =
+      (galleryIndex + step + currentMedia.length) % currentMedia.length;
     updateGallery(direction);
     scheduleGallery();
-    document.querySelector(`[data-gallery-step="${direction}"]`)?.focus({ preventScroll: true });
+    document
+      .querySelector(`[data-gallery-step="${direction}"]`)
+      ?.focus({ preventScroll: true });
     return;
   }
   const media = event.target.closest("[data-media]");
@@ -1350,7 +1419,9 @@ app.addEventListener("click", async (event) => {
     }
     if (action === "publish") {
       await api("publish/" + id, { method: "PUT" });
-      notice("Đã phát hành. Mọi người có thể tìm thấy tác phẩm trong mục Khám phá.");
+      notice(
+        "Đã phát hành. Mọi người có thể tìm thấy tác phẩm trong mục Khám phá.",
+      );
     }
     if (action === "remove-post") {
       const draft = next === "DRAFT";
@@ -1438,7 +1509,8 @@ app.addEventListener("change", (event) => {
     year.closest("label").hidden = year.disabled = field.value === "all";
     month.closest("label").hidden = month.disabled = field.value !== "month";
   }
-  if (field.form?.id === "revenue-filters" && field.name === "sort") filterRevenue(field.form);
+  if (field.form?.id === "revenue-filters" && field.name === "sort")
+    filterRevenue(field.form);
   if (field.form?.id === "purchase-filter") filterPurchases(field.form);
   if (field.form?.id === "browse-form" && field.matches("select"))
     filterBrowse(field.form);
@@ -1620,7 +1692,12 @@ app.addEventListener("submit", async (event) => {
   }
   if (form.id === "purchase-filter") return filterPurchases(form);
   if (form.id === "comments-form") return addPostComment(form);
-  if (form.id === "verify-form" && event.submitter?.value === "resend" && !form.elements.email.reportValidity()) return;
+  if (
+    form.id === "verify-form" &&
+    event.submitter?.value === "resend" &&
+    !form.elements.email.reportValidity()
+  )
+    return;
   const status = form.querySelector("[role=status]");
   const buttons = [
     ...form.querySelectorAll("button[type=submit], button:not([type])"),

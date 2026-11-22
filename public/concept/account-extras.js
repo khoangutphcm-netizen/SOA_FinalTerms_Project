@@ -104,15 +104,25 @@ export function walletPage(wallet, esc, returnPost, stripeStatus) {
 }
 
 const reportDate = new Intl.DateTimeFormat("vi-VN", {
-  dateStyle: "short", timeZone: "Asia/Ho_Chi_Minh",
+  dateStyle: "short",
+  timeZone: "Asia/Ho_Chi_Minh",
 });
 
 export function revenuePage(report, esc, postLink) {
   const { period, year, month, sort, q, summary } = report;
-  const options = (choices, selected) => choices.map(([value, label]) =>
-    `<option value="${value}"${value === selected ? " selected" : ""}>${label}</option>`).join("");
-  const periodLabel = period === "all" ? "Toàn thời gian" : period === "year"
-    ? `Năm ${year}` : `Tháng ${month}/${year}`;
+  const options = (choices, selected) =>
+    choices
+      .map(
+        ([value, label]) =>
+          `<option value="${value}"${value === selected ? " selected" : ""}>${label}</option>`,
+      )
+      .join("");
+  const periodLabel =
+    period === "all"
+      ? "Toàn thời gian"
+      : period === "year"
+        ? `Năm ${year}`
+        : `Tháng ${month}/${year}`;
   return `<section class="account-revenue" aria-labelledby="seller-sales-title">
     <div class="surface seller-sales-summary">
       <div><h2 id="seller-sales-title">Doanh thu</h2><p class="muted">${periodLabel} · Đơn đã thanh toán</p></div>
@@ -121,11 +131,17 @@ export function revenuePage(report, esc, postLink) {
         <div><dt>Lượt bán</dt><dd>${summary.paidCount.toLocaleString("vi-VN")}</dd></div>
       </dl>
       <form id="revenue-period" class="revenue-filters revenue-period" aria-label="Chọn kỳ báo cáo">
-      <label>Kỳ báo cáo<select name="period">${options([
-        ["month", "Theo tháng"], ["year", "Theo năm"], ["all", "Toàn thời gian"],
-      ], period)}</select></label>
+      <label>Kỳ báo cáo<select name="period">${options(
+        [
+          ["month", "Theo tháng"],
+          ["year", "Theo năm"],
+          ["all", "Toàn thời gian"],
+        ],
+        period,
+      )}</select></label>
       <label${period !== "month" ? " hidden" : ""}>Tháng<select name="month"${period !== "month" ? " disabled" : ""}>${options(
-        Array.from({ length: 12 }, (_, i) => [i + 1, `Tháng ${i + 1}`]), month,
+        Array.from({ length: 12 }, (_, i) => [i + 1, `Tháng ${i + 1}`]),
+        month,
       )}</select></label>
       <label${period === "all" ? " hidden" : ""}>Năm<input type="number" name="year" required value="${year}" min="1000" max="9998" inputmode="numeric"${period === "all" ? " disabled" : ""}></label>
       <button class="btn dark" type="submit">Áp dụng</button>
@@ -133,42 +149,64 @@ export function revenuePage(report, esc, postLink) {
     </div>
     <form id="revenue-filters" class="revenue-filters revenue-toolbar" role="search" aria-label="Tìm tác phẩm đã bán">
       <label class="revenue-search">Tìm tác phẩm<input type="search" name="q" maxlength="100" value="${esc(q)}" placeholder="Nhập tên ảnh hoặc video" aria-controls="revenue-results"></label>
-      <label>Sắp xếp<select name="sort">${options([
-        ["revenue-desc", "Doanh thu cao nhất"], ["revenue-asc", "Doanh thu thấp nhất"],
-        ["sold", "Bán nhiều nhất"], ["recent", "Bán gần đây nhất"],
-      ], sort)}</select></label>
+      <label>Sắp xếp<select name="sort">${options(
+        [
+          ["revenue-desc", "Doanh thu cao nhất"],
+          ["revenue-asc", "Doanh thu thấp nhất"],
+          ["sold", "Bán nhiều nhất"],
+          ["recent", "Bán gần đây nhất"],
+        ],
+        sort,
+      )}</select></label>
     </form>
     <p id="revenue-status" class="muted" role="status"></p>
     <div id="revenue-results">${revenueResults(report, esc, postLink)}</div>
   </section>`;
 }
 
-export function revenueResults({ period, year, month, sort, q, page, lastPage, posts }, esc, postLink) {
-  const pageLink = (target) => "#account/revenue?" + new URLSearchParams({ period, year, month, sort, q, page: target });
-  return `${posts.length ? `<div class="surface revenue-table-wrap">
+export function revenueResults(
+  { period, year, month, sort, q, page, lastPage, posts },
+  esc,
+  postLink,
+) {
+  const pageLink = (target) =>
+    "#account/revenue?" +
+    new URLSearchParams({ period, year, month, sort, q, page: target });
+  return `${
+    posts.length
+      ? `<div class="surface revenue-table-wrap">
       <table class="revenue-table" aria-label="Doanh thu theo tác phẩm">
         <thead><tr><th scope="col">Tác phẩm</th><th scope="col">Lượt bán</th>
           <th scope="col">Doanh thu</th><th scope="col" class="revenue-date">Bán gần nhất</th></tr></thead>
-        <tbody>${posts.map((post) => {
-          const latest = reportDate.format(new Date(post.lastSoldAt));
-          const thumb = `<span class="revenue-thumb" aria-hidden="true">
+        <tbody>${posts
+          .map((post) => {
+            const latest = reportDate.format(new Date(post.lastSoldAt));
+            const thumb = `<span class="revenue-thumb" aria-hidden="true">
             ${post.cover_id ? `<img src="/api/demo/media/${encodeURIComponent(post.cover_id)}?thumbnail=1" alt="" loading="lazy">` : ""}
             ${post.cover_kind === "VIDEO" ? '<span class="revenue-video">Video</span>' : ""}
           </span>`;
-          const title = `<span class="revenue-work-title">${esc(post.title)}</span>`;
-          const work = post.canOpen ? `<a class="revenue-work" href="${postLink(post)}">${thumb}${title}</a>`
-            : `<span class="revenue-work">${thumb}${title}</span>`;
-          return `<tr><th scope="row">${work}<span class="revenue-mobile-date">Bán gần nhất ${latest}</span></th>
+            const title = `<span class="revenue-work-title">${esc(post.title)}</span>`;
+            const work = post.canOpen
+              ? `<a class="revenue-work" href="${postLink(post)}">${thumb}${title}</a>`
+              : `<span class="revenue-work">${thumb}${title}</span>`;
+            return `<tr><th scope="row">${work}<span class="revenue-mobile-date">Bán gần nhất ${latest}</span></th>
             <td>${post.paidCount.toLocaleString("vi-VN")}</td><td>${money(post.revenueVnd)}</td>
             <td class="revenue-date">${latest}</td></tr>`;
-        }).join("")}</tbody>
+          })
+          .join("")}</tbody>
       </table>
-    </div>` : `<p class="surface revenue-empty muted">${q ? "Không tìm thấy tác phẩm đã bán khớp tên trong kỳ này." : "Bạn chưa có giao dịch bán tác phẩm trong kỳ này."}</p>`}
-    ${lastPage > 1 ? `<nav class="revenue-pagination" aria-label="Trang báo cáo">
+    </div>`
+      : `<p class="surface revenue-empty muted">${q ? "Không tìm thấy tác phẩm đã bán khớp tên trong kỳ này." : "Bạn chưa có giao dịch bán tác phẩm trong kỳ này."}</p>`
+  }
+    ${
+      lastPage > 1
+        ? `<nav class="revenue-pagination" aria-label="Trang báo cáo">
       ${page > 1 ? `<a class="btn light" href="${esc(pageLink(page - 1))}">Trang trước</a>` : ""}
       <span>Trang ${page}/${lastPage}</span>
       ${page < lastPage ? `<a class="btn light" href="${esc(pageLink(page + 1))}">Trang sau</a>` : ""}
-    </nav>` : ""}`;
+    </nav>`
+        : ""
+    }`;
 }
 
 const downloadLabels = {

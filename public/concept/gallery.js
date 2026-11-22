@@ -2,7 +2,9 @@ export const galleryInterval = 10_000;
 
 export function galleryCycleItems(media) {
   return media.flatMap((file, index) =>
-    ["IMAGE", "VIDEO"].includes(file.kind) && (file.url || file.previewUrl) ? [index] : [],
+    ["IMAGE", "VIDEO"].includes(file.kind) && (file.url || file.previewUrl)
+      ? [index]
+      : [],
   );
 }
 
@@ -29,9 +31,19 @@ export function galleryFrame(media, i, { empty, esc, kindNames }) {
       : m.premium
         ? "Premium | Đã mở quyền"
         : "Tệp công khai";
-  const downloadStyle = media.some(file => file.locked) ? "light" : "primary";
-  const arrows = media.length > 1 ? [["back", "Tệp trước", "m15 6-6 6 6 6"], ["forward", "Tệp tiếp theo", "m9 6 6 6-6 6"]]
-    .map(([direction, label, path]) => `<button type="button" class="gallery-arrow gallery-arrow-${direction}" data-gallery-step="${direction}" aria-label="${label}" title="${label}"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${path}"/></svg></button>`).join("") : "";
+  const downloadStyle = media.some((file) => file.locked) ? "light" : "primary";
+  const arrows =
+    media.length > 1
+      ? [
+          ["back", "Tệp trước", "m15 6-6 6 6 6"],
+          ["forward", "Tệp tiếp theo", "m9 6 6 6-6 6"],
+        ]
+          .map(
+            ([direction, label, path]) =>
+              `<button type="button" class="gallery-arrow gallery-arrow-${direction}" data-gallery-step="${direction}" aria-label="${label}" title="${label}"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${path}"/></svg></button>`,
+          )
+          .join("")
+      : "";
   return `<div class="gallery-player"><div class="preview media-stage">${view}</div>${arrows}</div><div class="detail-file"><div><span>Tệp ${i + 1}/${media.length} | ${kindNames[m.kind] || "Tệp"}</span><strong>${esc(m.filename)}</strong><span>${state}</span></div>${m.url ? `<a class="btn ${downloadStyle}" href="${esc(m.url)}" download="${esc(m.filename)}">Tải bản gốc</a>` : ""}</div>`;
 }
 
@@ -58,4 +70,3 @@ export function galleryStrip(media, selected, { esc, kindNames, autoCycle }) {
   return `<div class="gallery-strip-heading"><strong>Tệp trong tác phẩm</strong>${cycleButton}</div>
     <div class="media-thumbs" role="group" aria-label="Chọn tệp trong tác phẩm">${thumbnails}</div>`;
 }
-

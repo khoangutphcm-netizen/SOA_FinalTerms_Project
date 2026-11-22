@@ -12,6 +12,7 @@ x-app: &app
 
 x-network: &network
   PCK_BIND_HOST: 0.0.0.0
+  METRICS_BIND_HOST: 0.0.0.0
   CONTENT_HOST: content
   COMMERCE_HOST: commerce
   IDENTITY_HOST: identity

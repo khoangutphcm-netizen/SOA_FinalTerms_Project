@@ -26,7 +26,10 @@ CREATE TABLE
         UNIQUE (provider, provider_transaction_id),
         UNIQUE (id, buyer_id, post_id),
         CONSTRAINT orders_seller_post_key UNIQUE (id, seller_id, post_id),
-        CONSTRAINT orders_distinct_seller_check CHECK (seller_id IS NULL OR seller_id <> buyer_id)
+        CONSTRAINT orders_distinct_seller_check CHECK (
+            seller_id IS NULL
+            OR seller_id <> buyer_id
+        )
     );
 
 CREATE UNIQUE INDEX orders_one_pending_idx ON orders (buyer_id, post_id)
@@ -34,8 +37,15 @@ WHERE
     status = 'PENDING';
 
 CREATE INDEX orders_history_idx ON orders (buyer_id, created_at DESC, id);
-CREATE INDEX orders_seller_paid_idx ON orders (seller_id, paid_at) WHERE status = 'PAID';
-CREATE INDEX orders_legacy_paid_idx ON orders (post_id, paid_at) WHERE seller_id IS NULL AND status = 'PAID';
+
+CREATE INDEX orders_seller_paid_idx ON orders (seller_id, paid_at)
+WHERE
+    status = 'PAID';
+
+CREATE INDEX orders_legacy_paid_idx ON orders (post_id, paid_at)
+WHERE
+    seller_id IS NULL
+    AND status = 'PAID';
 
 CREATE TABLE
     payment_events (

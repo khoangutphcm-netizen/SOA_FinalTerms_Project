@@ -38,6 +38,7 @@ Mở URL HTTPS được in sau dòng `PCK ngrok`. Lệnh này chạy cả PCK l�
    ```
 
    Đợi dòng **Ready**, rồi điền `STRIPE_WEBHOOK_SECRET=whsec_...` bằng khóa mà listener vừa in ra. Giữ terminal này mở. Giá trị bắt đầu bằng `acct_` là ID tài khoản Stripe.
+
 3. **Terminal 2 — chạy PCK.** Dùng một trong hai lệnh ở mục 1. Nếu PCK đã mở trước khi bạn lưu khóa webhook, dừng bằng **Ctrl+C** rồi chạy lại. Nếu đã đổi `PORT` trong `.env`, đổi cổng trong `--forward-to` cho khớp.
 4. **Thử nạp.** Vào **Tài khoản → Số dư**, nhập số tiền rồi chọn **Nạp qua Stripe test**. Dùng thẻ test `4242 4242 4242 4242`, ngày hết hạn trong tương lai và CVC `123`.
 5. **Kiểm tra kết quả.** Terminal Stripe cần hiện `checkout.session.completed` trả **HTTP 200**. Tải lại trang Số dư để kiểm tra số tiền đã tăng và có dòng giao dịch trong lịch sử.

@@ -7,3 +7,11 @@ node_modules/
 /.pck-demo/
 AGENTS.md
 audit/
+usecase/
+.vscode/
+output/
+tmp/
+/presentation/assets/
+usecase-moi/
+presentation/PCK-Dac-ta-Use-Case.docx
+*.log
