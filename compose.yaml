@@ -33,6 +33,7 @@ services:
     command: [data-server.mjs, IDENTITY]
     environment:
       <<: *network
+      METRICS_PORT: "9464"
       IDENTITY_DATABASE_URL: ${IDENTITY_DATABASE_URL:?Set IDENTITY_DATABASE_URL in .env}
       PCK_OTP_SECRET: ${PCK_OTP_SECRET:-}
       SMTP_HOST: ${SMTP_HOST:-}
@@ -47,6 +48,7 @@ services:
     command: [content-server.mjs]
     environment:
       <<: *network
+      METRICS_PORT: "9463"
       CONTENT_DATABASE_URL: ${CONTENT_DATABASE_URL:?Set CONTENT_DATABASE_URL in .env}
       PCK_SECURE_COOKIE: "0"
 
@@ -55,6 +57,7 @@ services:
     command: [commerce-server.mjs]
     environment:
       <<: *network
+      METRICS_PORT: "9462"
       COMMERCE_DATABASE_URL: ${COMMERCE_DATABASE_URL:?Set COMMERCE_DATABASE_URL in .env}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
@@ -65,6 +68,7 @@ services:
     command: [data-server.mjs, COMMUNITY]
     environment:
       <<: *network
+      METRICS_PORT: "9465"
       COMMUNITY_DATABASE_URL: ${COMMUNITY_DATABASE_URL:?Set COMMUNITY_DATABASE_URL in .env}
 
   web:
@@ -83,9 +87,42 @@ services:
         condition: service_started
     environment:
       <<: *network
+      METRICS_PORT: "9461"
       PORT: "3100"
     ports:
       - "127.0.0.1:${PORT:-3100}:3100"
 
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+    volumes:
+      - ./grafana-prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+
+  grafana:
+    image: grafana/grafana:12.1.0
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana-prometheus/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana-prometheus/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "127.0.0.1:3000:3000"
+
 volumes:
   internal-token:
+  prometheus-data:
+  grafana-data:

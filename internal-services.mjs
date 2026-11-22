@@ -5,6 +5,7 @@ import { community } from "./community-handlers.mjs";
 import { profileHandlers } from "./identity-profile.mjs";
 import { accountAdmin } from "./identity-admin.mjs";
 import { bindHost, serviceHost, servicePort } from "./service-network.mjs";
+import { createServiceMetrics } from "./grafana-prometheus/service-metrics.mjs";
 
 export { identity } from "./identity-handlers.mjs";
 export { servicePort } from "./service-network.mjs";
@@ -51,7 +52,9 @@ export function startDataService(service) {
   };
   const token = process.env.PCK_INTERNAL_TOKEN;
   if (!token) throw new Error("PCK_INTERNAL_TOKEN is required");
+  const metrics = createServiceMetrics(service.toLowerCase(), Number(process.env.METRICS_PORT || (service === "IDENTITY" ? 9464 : 9465)));
   createServer(async (req, res) => {
+    metrics.recordRequest(req, res);
     const send = (status, data) => {
       res.writeHead(status, {
         "Content-Type": "application/json",

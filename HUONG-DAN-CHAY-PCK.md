@@ -53,3 +53,19 @@ Nếu nhóm đã có một URL ngrok ổn định, có thể cho Stripe gửi we
 - Kiểm tra listener còn chạy và `--forward-to` trỏ tới đúng cổng PCK.
 - Nếu webhook báo lỗi chữ ký, kiểm tra khóa `whsec_...` có thuộc đúng listener hoặc endpoint đang gửi không, rồi khởi động lại PCK sau khi sửa.
 - Nếu thanh toán diễn ra trước khi webhook sẵn sàng, khoản đó cần được gửi lại qua webhook hoặc đối soát riêng. Bật listener sau đó chỉ nhận các sự kiện mới.
+
+## 3. Prometheus và Grafana
+
+Compose khởi chạy Prometheus, Grafana và dashboard PCK. Mỗi tiến trình Node mở cổng metrics riêng trong mạng Docker; các cổng này không publish ra máy host. Prometheus thu thập dữ liệu mỗi 15 giây và lưu tối đa 7 ngày.
+
+1. Đặt `GRAFANA_ADMIN_PASSWORD` trong `.env` (nên đổi giá trị `admin` mặc định), sau đó chạy:
+
+   ```powershell
+   docker compose up --build
+   ```
+
+2. Mở [Grafana](http://127.0.0.1:3000), đăng nhập bằng user `admin` và mật khẩu vừa đặt. Vào **Dashboards > PCK > PCK Service Overview**. Datasource Prometheus và dashboard được nạp tự động.
+3. Kiểm tra [Prometheus Targets](http://127.0.0.1:9090/targets): năm target `web`, `commerce`, `content`, `identity`, `community` cần có trạng thái **UP**. Gửi vài request cho PCK và đợi một chút để biểu đồ có dữ liệu.
+4. Dashboard hiển thị request rate, lỗi HTTP 5xx, p95 latency, bộ nhớ resident và trạng thái scrape. Metrics HTTP có nhãn service, method, route đã gom nhóm và status code.
+
+Metrics dùng các cổng nội bộ 9461–9465 theo thứ tự web, commerce, content, identity, community. Không publish các cổng này ra host. Grafana và Prometheus chỉ bind vào `127.0.0.1`. Nhấn Ctrl+C để dừng Compose.

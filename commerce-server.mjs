@@ -6,6 +6,7 @@ import {
   topUpLimits, topUpAmountMessage, validTopUpAmount, topUpWallet, walletSummary,
 } from "./commerce-wallet.mjs";
 import { createCheckout, handleStripeWebhook } from "./commerce-stripe.mjs";
+import { createServiceMetrics } from "./grafana-prometheus/service-metrics.mjs";
 
 const token = process.env.PCK_INTERNAL_TOKEN;
 if (!token) throw new Error("PCK_INTERNAL_TOKEN is required");
@@ -140,6 +141,7 @@ async function recordTestPurchase(id, caller, expectedPrice, post) {
 }
 
 const server = createServer(async (req, res) => {
+  metrics.recordRequest(req, res);
   if (req.headers.authorization !== "Bearer " + token)
     return send(res, 403, { message: "Yêu cầu nội bộ." });
   try {
@@ -289,6 +291,7 @@ const server = createServer(async (req, res) => {
 });
 
 const port = servicePort("COMMERCE");
+const metrics = createServiceMetrics("commerce", Number(process.env.METRICS_PORT || 9462));
 server.listen(port, bindHost, () =>
   console.log("PCK Commerce: " + port),
 );

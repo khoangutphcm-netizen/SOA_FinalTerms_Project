@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { handleDemo } from "./demo-upload.mjs";
 import { query } from "./demo-catalog.mjs";
 import { bindHost, servicePort } from "./service-network.mjs";
+import { createServiceMetrics } from "./grafana-prometheus/service-metrics.mjs";
 
 const token = process.env.PCK_INTERNAL_TOKEN;
 if (!token) throw new Error("PCK_INTERNAL_TOKEN is required");
@@ -15,7 +16,9 @@ function send(res, status, data) {
   res.end(JSON.stringify(data));
 }
 
+const metrics = createServiceMetrics("content", Number(process.env.METRICS_PORT || 9463));
 createServer(async (req, res) => {
+  metrics.recordRequest(req, res);
   if (req.headers.authorization !== "Bearer " + token)
     return send(res, 403, { message: "Yêu cầu nội bộ." });
   try {

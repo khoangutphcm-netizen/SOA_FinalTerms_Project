@@ -4,6 +4,7 @@ import { performance } from "node:perf_hooks";
 import { callService } from "./internal-services.mjs";
 import { bindHost, serviceHost, servicePort } from "./service-network.mjs";
 import { commerce } from "./commerce-client.mjs";
+import { createServiceMetrics } from "./grafana-prometheus/service-metrics.mjs";
 
 const services = Object.freeze({
   identity: "IDENTITY_DATABASE_URL",
@@ -202,6 +203,7 @@ function send(res, status, body, type = "application/json; charset=utf-8") {
 }
 
 const server = createServer(async (req, res) => {
+  metrics.recordRequest(req, res);
   const path = (req.url || "/").split("?")[0];
   if (path === "/api/stripe/webhook") {
     if (req.method !== "POST") return send(res, 405, { message: "Dùng POST." });
@@ -267,6 +269,7 @@ const server = createServer(async (req, res) => {
   send(res, 404, { message: "Không tìm thấy đường dẫn." });
 });
 const port = Number(process.env.PORT || 3100);
+const metrics = createServiceMetrics("web", Number(process.env.METRICS_PORT || 9461));
 server.listen(port, bindHost, () => {
   console.log("PCK DB Check: http://127.0.0.1:" + server.address().port);
 });
