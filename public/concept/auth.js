@@ -1,5 +1,5 @@
 const demoDot =
-  '<a class="force-login-link" href="#login/demo" aria-label="Force login · Đăng nhập demo" title="Đăng nhập demo"></a>';
+  '<a class="force-login-link" href="#login/demo" aria-label="Đăng nhập tài khoản demo" title="Đăng nhập tài khoản demo"></a>';
 
 export function welcome({ link }) {
   return `<section class="welcome-screen"><div class="welcome-copy">
@@ -45,7 +45,7 @@ export function authForm(
        : '<label>Tên đăng nhập hoặc email<input name="identifier" type="text" required maxlength="254" autocapitalize="none" autocomplete="username" placeholder="Ví dụ: user1"></label>'
  }
  <label>Mật khẩu<input name="password" type="password" required ${register ? 'minlength="8"' : ""} maxlength="128" autocomplete="${register ? "new-password" : "current-password"}"></label>
- <div class="button-row"><button class="btn dark">${label}</button>${register || demo ? link("Đăng nhập thường", "#login") : link("Tạo tài khoản", "#register")}</div>
+ <div class="button-row"><button class="btn dark">${label}</button>${register || demo ? link("Đăng nhập", "#login") : link("Tạo tài khoản", "#register")}</div>
  ${demo ? '<p class="muted">Dùng mật khẩu của tài khoản demo đã được cấp.</p>' : `<div class="button-row"><a href="#verify">Xác minh email hoặc gửi lại mã</a>${demoDot}</div>`}
  <p role="status" class="muted"></p>
  <a href="#home">Tiếp tục với vai trò khách</a>

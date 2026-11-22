@@ -67,7 +67,7 @@ export async function makePreview(bytes, video, start) {
   const cwd = process.env.PCK_PREVIEW_FONT_DIR ||
     (windows ? (process.env.SystemRoot || "C:\\Windows") + "\\Fonts" : "/usr/share/fonts/truetype/dejavu");
   const font = process.env.PCK_PREVIEW_FONT_FILE || (windows ? "arial.ttf" : "DejaVuSans.ttf");
-  if (!/^[\w.-]+$/.test(font)) throw processError(503, "Tên font tạo preview không hợp lệ.");
+  if (!/^[\w.-]+$/.test(font)) throw processError(503, "Tên phông chữ tạo bản xem trước không hợp lệ.");
   const size = video ? 480 : 640;
   const filter =
     `scale='min(${size},iw)':'min(${size},ih)':force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1,` +
@@ -82,7 +82,7 @@ export async function makePreview(bytes, video, start) {
     });
   } catch (error) {
     if (error.code === "ENOENT" || /drawtext|libx264|font/i.test(error.stderr || ""))
-      throw processError(503, "Máy chạy Content cần FFmpeg có drawtext và libx264, cùng font để tạo preview.");
+      throw processError(503, "Service Content cần FFmpeg có drawtext và libx264, cùng phông chữ để tạo bản xem trước.");
     throw processError(422, video
       ? "Không tạo được video xem trước. Chọn giây bắt đầu nằm trong video và thử lại."
       : "Không tạo được ảnh xem trước từ tệp này.");

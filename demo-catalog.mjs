@@ -36,9 +36,9 @@ async function publish(id, caller) {
         "SELECT status,price_vnd FROM public.posts WHERE id=$1 AND author_id=$2 FOR UPDATE",
         [id, caller.id],
       );
-      if (!post) throw problem(404, "Không tìm thấy bài của bạn.");
+      if (!post) throw problem(404, "Không tìm thấy tác phẩm của bạn.");
       if (!["DRAFT", "PUBLISHED"].includes(post.status))
-        throw problem(409, "Bài này không thể phát hành.");
+        throw problem(409, "Không thể phát hành tác phẩm này.");
       if (post.status === "DRAFT") {
         const { rows } = await client.query(
           `SELECT purpose,${originalExists} AS available FROM public.assets a WHERE post_id=$1 AND status='READY'`,
@@ -51,7 +51,7 @@ async function publish(id, caller) {
         ) {
           throw problem(
             409,
-            "Bài cần tệp đầy đủ sẵn sàng. Bài Premium còn cần một tệp đại diện công khai.",
+            "Tác phẩm cần có tệp đầy đủ sẵn sàng. Tác phẩm Premium cần thêm một tệp đại diện công khai.",
           );
         }
         if (rows.some((file) => !file.available)) {
@@ -241,7 +241,7 @@ async function managePost(id, caller, method, input) {
         WHERE p.id=$1 AND p.author_id=$2 ${method === "GET" ? "FOR SHARE" : "FOR UPDATE"}`,
         [id, caller.id],
       );
-      if (!post) throw problem(404, "Không tìm thấy bài của bạn.");
+      if (!post) throw problem(404, "Không tìm thấy tác phẩm của bạn.");
       if (method === "DELETE") {
         if (post.withdrawn_at) {
           await client.query("COMMIT");
@@ -250,7 +250,7 @@ async function managePost(id, caller, method, input) {
         if (input?.status && input.status !== post.status)
           throw problem(
             409,
-            "Trạng thái bài đã đổi. Tải lại trước khi xóa hoặc gỡ.",
+            "Trạng thái tác phẩm đã thay đổi. Hãy tải lại trang trước khi xóa hoặc gỡ.",
           );
         if (post.status === "DRAFT") {
           await client.query(
@@ -269,7 +269,7 @@ async function managePost(id, caller, method, input) {
           post.status !== "PUBLISHED" &&
           post.moderation_state !== "TEMP_HIDDEN"
         )
-          throw problem(409, "Bài đang bị quản trị viên ẩn.");
+          throw problem(409, "Tác phẩm đang bị quản trị viên ẩn.");
         await client.query(
           "UPDATE public.posts SET status='HIDDEN',withdrawn_at=now() WHERE id=$1",
           [id],
@@ -282,7 +282,7 @@ async function managePost(id, caller, method, input) {
         return { status: "WITHDRAWN" };
       }
       if (!["DRAFT", "PUBLISHED"].includes(post.status))
-        throw problem(409, "Bài này không còn sửa được.");
+        throw problem(409, "Không thể chỉnh sửa tác phẩm này nữa.");
       if (method === "GET") {
         const { rows: genres } = await client.query(
           `SELECT g.id,g.name FROM public.post_genres pg JOIN public.genres g ON g.id=pg.genre_id
@@ -311,9 +311,9 @@ async function managePost(id, caller, method, input) {
         };
       }
       if (post.status !== "PUBLISHED")
-        throw problem(409, "Dùng form chỉnh sửa bản nháp để lưu tệp.");
+        throw problem(409, "Hãy dùng biểu mẫu chỉnh sửa bản nháp để lưu tệp.");
       if (input?.revision !== post.revision)
-        throw problem(409, "Bài đã thay đổi. Tải lại form trước khi lưu.");
+        throw problem(409, "Tác phẩm đã thay đổi. Hãy tải lại trang trước khi lưu.");
       const title = typeof input.title === "string" ? input.title.trim() : "";
       const description =
         typeof input.description === "string" ? input.description.trim() : "";
@@ -383,7 +383,7 @@ export async function handleCatalog(req, res, path, send, caller, readJson) {
   };
   const requireAdmin = () => {
     if (caller?.role !== "ADMIN")
-      throw problem(403, "Chỉ tài khoản admin được thực hiện.");
+      throw problem(403, "Chỉ quản trị viên có thể thực hiện thao tác này.");
   };
   try {
     if (path === "/api/demo/catalog" && req.method === "GET")

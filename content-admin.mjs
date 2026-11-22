@@ -100,7 +100,7 @@ export async function saveEvent(id, input) {
   ) {
     throw problem(
       400,
-      "Kiểm tra tên, mô tả và danh sách bài. Sự kiện đang bật cần ít nhất một bài.",
+      "Hãy kiểm tra tên, mô tả và danh sách tác phẩm. Sự kiện đang bật cần ít nhất một tác phẩm.",
     );
   }
   return withDb("CONTENT", async (client) => {
@@ -111,7 +111,7 @@ export async function saveEvent(id, input) {
         [ids],
       );
       if (rows.length !== ids.length)
-        throw problem(409, "Một bài đã không còn hiển thị.");
+        throw problem(409, "Một tác phẩm không còn hiển thị.");
       const result = id
         ? await client.query(
             "UPDATE public.homepage_events SET title=$1,description=$2,enabled=$3 WHERE id=$4 RETURNING id",

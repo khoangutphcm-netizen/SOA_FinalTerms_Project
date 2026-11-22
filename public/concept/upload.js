@@ -85,7 +85,7 @@ export function createUploadTools(uploadState, esc) {
     form.querySelector("#upload-count").textContent =
       uploadState.files.length +
       "/8 tệp" +
-      (total ? " · " + fileSize(total) : "");
+      (total ? " | " + fileSize(total) : "");
     form.querySelector("#upload-add").disabled = uploadState.files.length >= 8;
     container.innerHTML = uploadState.files
       .map((entry, index) => {
@@ -98,7 +98,7 @@ export function createUploadTools(uploadState, esc) {
             : `<img src="${esc(entry.preview)}" alt="${name}">`;
         return `<article class="upload-file">
    <div class="upload-preview">${preview}<span class="upload-chip">${cover ? "Đại diện" : entry.premium ? "Premium" : "Công khai"}</span></div>
-   <div class="upload-file-meta"><strong title="${name}">${name}</strong><small>${entry.video ? "Video" : "Ảnh"} · ${fileSize(entry.file.size)}</small>${entry.video ? `<small data-video-duration>${hasDuration(entry.duration) ? "Thời lượng " + videoTime(entry.duration) : ""}</small>` : ""}</div>
+   <div class="upload-file-meta"><strong title="${name}">${name}</strong><small>${entry.video ? "Video" : "Ảnh"} | ${fileSize(entry.file.size)}</small>${entry.video ? `<small data-video-duration>${hasDuration(entry.duration) ? "Thời lượng " + videoTime(entry.duration) : ""}</small>` : ""}</div>
    <div class="upload-file-actions">
     <button type="button" class="btn light" data-upload-action="cover" data-index="${index}" aria-label="Chọn ${name} làm đại diện" aria-pressed="${cover}">${cover ? "✓ Đại diện" : "Đặt đại diện"}</button>
     <button type="button" class="btn light" data-upload-action="remove" data-index="${index}" aria-label="Xóa ${name}">Xóa</button>
@@ -107,7 +107,7 @@ export function createUploadTools(uploadState, esc) {
    Premium ${cover ? "<small>Ảnh bìa công khai</small>" : ""}</label>
    ${
      entry.video && entry.premium
-       ? `<div class="preview-time-controls"><label>Bắt đầu preview (giây)
+       ? `<div class="preview-time-controls"><label>Bắt đầu bản xem trước (giây)
     <input type="number" min="0" max="${maxPreviewStart(entry.duration)}" step="1" required name="previewStart:${index}" data-preview-start="${index}" value="${esc(entry.previewStart ?? 0)}">
     </label>
     <button type="button" class="btn light" data-upload-action="preview-time" data-index="${index}" disabled>Dùng mốc đang phát</button>
@@ -234,12 +234,12 @@ export async function upload(
   <input id="upload-picker" type="file" multiple accept=".jpg,.jpeg,.png,.mp4" hidden>
   <button type="button" id="upload-add" class="btn dark" data-upload-action="add">+ Thêm ảnh/video</button>
   <span>Kéo và thả vào đây hoặc thêm tệp qua nhiều lượt</span>
-  <small>JPG, PNG, MP4 · 8 tệp · 10 MiB/tệp · 40 MiB/bài</small>
+  <small>JPG, PNG, MP4 | 8 tệp | 10 MiB/tệp | 40 MiB/bài</small>
  </section>
- <div class="upload-list-head"><strong>Tệp trong bài</strong><span id="upload-count" aria-live="polite">0/8 tệp</span></div>
+ <div class="upload-list-head"><strong>Tệp trong tác phẩm</strong><span id="upload-count" aria-live="polite">0/8 tệp</span></div>
  <p id="upload-feedback" class="upload-feedback" aria-live="polite"></p>
  <div id="upload-files" class="upload-files"></div>
- <label class="check"><input name="autoCycle" type="checkbox" ${post?.auto_cycle ? "checked" : ""}> Tự chuyển ảnh mỗi 7 giây khi mở bài</label>
+ <label class="check"><input name="autoCycle" type="checkbox" ${post?.auto_cycle ? "checked" : ""}> Tự chuyển ảnh mỗi 7 giây khi mở tác phẩm</label>
  <section id="upload-price" class="upload-price" hidden><label><span id="upload-price-label"></span>
  <input name="price" type="number" min="1" max="100000000" step="1" inputmode="numeric" placeholder="Ví dụ: 39000" value="${Number(post?.price_vnd) || ""}" disabled></label>
  <output id="upload-price-preview" aria-live="polite"></output><small>Một mức giá bằng VND để mở toàn bộ tệp được bật Premium. Các tệp khác vẫn xem miễn phí.</small></section>

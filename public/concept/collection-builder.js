@@ -73,7 +73,7 @@ function wireCollectionBuilder(form) {
       kinds.includes("IMAGE") && kinds.includes("VIDEO")
         ? "Hỗn hợp"
         : kindNames[kinds[0]] || kindNames[post.cover_kind] || "";
-    const meta = [type, post.genres?.[0]].filter(Boolean).join(" · ");
+    const meta = [type, post.genres?.[0]].filter(Boolean).join(" | ");
     return `<label class="collection-builder-tile">
       <span class="collection-builder-preview"><span>${post.cover_kind === "VIDEO" ? "Video" : "Chưa có ảnh xem trước"}</span>
         ${cover ? `<img src="${esc(cover)}" ${post.cover_kind === "VIDEO" ? `data-video-cover="${esc(media)}"` : ""} alt="" loading="lazy">` : ""}

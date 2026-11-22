@@ -83,7 +83,7 @@ export async function createCollection(caller, input) {
     ids.length > 25 ||
     ids.some((id) => typeof id !== "string" || !uuid.test(id))
   )
-    throw problem(400, "Nhập tên và chọn tối đa 25 bài đã phát hành.");
+    throw problem(400, "Hãy nhập tên và chọn tối đa 25 tác phẩm đã phát hành.");
   return withDb("CONTENT", async (client) => {
     await client.query("BEGIN");
     try {
@@ -92,7 +92,7 @@ export async function createCollection(caller, input) {
         [ids],
       );
       if (rows.length !== ids.length)
-        throw problem(409, "Một bài đã không còn hiển thị.");
+        throw problem(409, "Một tác phẩm không còn hiển thị.");
       const {
         rows: [row],
       } = await client.query(

@@ -41,6 +41,6 @@ export async function moderatePost(id, caller, input) {
   if (!rows.length)
     throw problem(
       409,
-      "Trạng thái bài không còn phù hợp. Tải lại danh sách và thử lại.",
+      "Trạng thái tác phẩm không còn phù hợp. Hãy tải lại danh sách và thử lại.",
     );
 }

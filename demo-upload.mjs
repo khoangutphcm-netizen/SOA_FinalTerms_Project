@@ -70,9 +70,9 @@ async function saveUpload(
         "SELECT id,status,xmin::text AS revision FROM public.posts WHERE id=$1 AND author_id=$2 FOR UPDATE",
         [draftId, userId],
       );
-      if (!draft) throw problem(404, "Không tìm thấy bài của bạn.");
+      if (!draft) throw problem(404, "Không tìm thấy tác phẩm của bạn.");
       if (draft.status !== "DRAFT" || draft.revision !== revision)
-        throw problem(409, "Bản nháp đã thay đổi. Tải lại form trước khi lưu.");
+        throw problem(409, "Bản nháp đã thay đổi. Hãy tải lại trang trước khi lưu.");
       post = draft;
       const retained = files.filter((file) => file.id).map((file) => file.id);
       const { rows: existing } = await client.query(
@@ -255,7 +255,7 @@ export async function handleDemo(req, res, path, send) {
   const accountId = walletEdit ? accountPath.slice(0, -"/balance".length) : accountPath;
   const managesAccounts = path === accountsPath || accountId !== null;
   if (managesAccounts && active?.role !== "ADMIN")
-    return send(res, 403, { message: "Chỉ tài khoản admin được thực hiện." });
+    return send(res, 403, { message: "Chỉ quản trị viên có thể thực hiện thao tác này." });
   const method = draftId
     ? "PUT"
     : managesAccounts ? (accountId === null ? "GET" : walletEdit ? "POST" : "PUT")
@@ -423,7 +423,7 @@ export async function handleDemo(req, res, path, send) {
     if (
       !(req.headers["content-type"] || "").startsWith("multipart/form-data;")
     ) {
-      return send(res, 415, { message: "Dùng form tải tệp." });
+      return send(res, 415, { message: "Hãy sử dụng biểu mẫu tải tệp." });
     }
     const bytes = await body(req, maxTotal + 65536);
     if (!bytes)
@@ -434,7 +434,7 @@ export async function handleDemo(req, res, path, send) {
         headers: { "Content-Type": req.headers["content-type"] },
       }).formData();
     } catch {
-      return send(res, 400, { message: "Form tải tệp không hợp lệ." });
+      return send(res, 400, { message: "Biểu mẫu tải tệp không hợp lệ." });
     }
     const title = form.get("title")?.toString().trim();
     const description = form.get("description")?.toString().trim() || "";
@@ -497,7 +497,7 @@ export async function handleDemo(req, res, path, send) {
       uploads.reduce((sum, file) => sum + file.size, 0) > maxTotal
     ) {
       return send(res, 413, {
-        message: "Tối đa 10 MiB mỗi tệp và 40 MiB cho cả bài.",
+        message: "Mỗi tệp tối đa 10 MiB và mỗi tác phẩm tối đa 40 MiB.",
       });
     }
     if (
@@ -546,7 +546,7 @@ export async function handleDemo(req, res, path, send) {
         previewStart > 86400
       ) {
         return send(res, 400, {
-          message: "Giây bắt đầu preview phải là số nguyên từ 0 đến 86400.",
+          message: "Thời điểm bắt đầu bản xem trước phải là số nguyên từ 0 đến 86400 giây.",
         });
       }
       if (entry.id) {

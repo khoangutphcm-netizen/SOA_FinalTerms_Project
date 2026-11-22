@@ -9,7 +9,7 @@ const date = (value) =>
         dateStyle: "short",
         timeStyle: "short",
       })
-    : "—";
+    : "-";
 
 export function avatar({ id, alias, avatarVersion }, esc) {
   const initial = Array.from(String(alias || "P").trim())[0] || "P";
@@ -77,8 +77,8 @@ export function walletPage(wallet, esc, returnPost, stripeStatus) {
     .map((entry) => {
       const label = {
         TOP_UP: "Nạp thử",
-        ADMIN_CREDIT: "Admin cộng tiền",
-        ADMIN_DEBIT: "Admin giảm số dư",
+        ADMIN_CREDIT: "Quản trị viên cộng tiền",
+        ADMIN_DEBIT: "Quản trị viên giảm số dư",
         PURCHASE: "Mua tác phẩm",
       }[entry.kind];
       const credit = Number(entry.amount_vnd) > 0;
@@ -91,10 +91,10 @@ export function walletPage(wallet, esc, returnPost, stripeStatus) {
     <div><h2>Số dư demo</h2><strong class="wallet-amount">${money(wallet.balanceVnd)}</strong>
       <p class="muted">Chỉ dùng để mua thử trên PCK.</p></div>
     <form id="wallet-topup-form" class="wallet-topup">
-      <label>Số tiền nạp (₫)<input type="number" name="amount" inputmode="numeric" min="${min}" max="${max}" step="1" placeholder="Ví dụ 75000" required aria-describedby="wallet-topup-range">
+      <label>Số tiền nạp (₫)<input type="number" name="amount" inputmode="numeric" min="${min}" max="${max}" step="1" placeholder="Ví dụ: 75000" required aria-describedby="wallet-topup-range">
         <small id="wallet-topup-range" class="muted">${money(min)} – ${money(max)}</small></label>
       <div class="button-row"><button type="submit" name="provider" value="demo" class="btn light">Nạp thử</button>
-      <button type="submit" name="provider" value="stripe" class="btn dark">Nạp qua Stripe test</button></div><p role="status" class="muted"></p>
+      <button type="submit" name="provider" value="stripe" class="btn dark">Nạp thử qua Stripe</button></div><p role="status" class="muted"></p>
     </form>
     ${stripeStatus === "success" ? '<p class="wallet-stripe-status muted" role="status">Đã quay lại từ Stripe. Số dư cập nhật sau khi PCK nhận được xác nhận thanh toán. Hãy tải lại trang để kiểm tra.</p>' : stripeStatus === "cancel" ? '<p class="wallet-stripe-status muted" role="status">Bạn đã hủy thanh toán Stripe.</p>' : ""}
     ${returnPost ? `<a href="#post/${encodeURIComponent(returnPost)}">Quay lại tác phẩm</a>` : ""}

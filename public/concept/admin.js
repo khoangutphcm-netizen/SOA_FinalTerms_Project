@@ -7,7 +7,7 @@ const statuses = {
   DISABLED: "Đã khóa",
 };
 const joinedOn = new Intl.DateTimeFormat("vi-VN", { dateStyle: "short" });
-const amountLabel = (amount) => (amount == null ? "—" : money(amount));
+const amountLabel = (amount) => (amount == null ? "-" : money(amount));
 
 function pagination(page, hasNext, pageUrl, link, label) {
   return page > 1 || hasNext
@@ -64,7 +64,7 @@ async function accountsView({ api, esc, empty, button, link }, params) {
         ["ACTIVE", "DISABLED"].includes(account.status);
       const locked = account.status === "DISABLED";
       const metrics = `<dl class="admin-account-metrics">
-      <div><dt>Đã đăng</dt><dd>${account.postCount ?? "—"}</dd></div>
+      <div><dt>Đã đăng</dt><dd>${account.postCount ?? "-"}</dd></div>
       <div><dt>Doanh thu demo</dt><dd>${amountLabel(account.revenueVnd)}</dd></div>
       <div><dt>Số dư demo</dt><dd>${amountLabel(account.balanceVnd)}</dd></div>
     </dl>`;
@@ -113,23 +113,23 @@ async function postsView(
         post.cover_id && post.moderation_state !== "TAKEN_DOWN"
           ? `<img alt="" loading="lazy" src="/api/demo/media/${encodeURIComponent(post.cover_id)}${post.cover_kind === "VIDEO" ? "?thumbnail=1" : ""}">`
           : "";
-      return `<li><a class="admin-post-heading" href="${postLink(post)}"><span class="admin-post-preview"><span>—</span>${preview}</span>
+      return `<li><a class="admin-post-heading" href="${postLink(post)}"><span class="admin-post-preview"><span>-</span>${preview}</span>
       <span><strong>${esc(post.title)}</strong><small>${esc(postStatus(post))}</small></span></a>
-      <div class="admin-post-revenue"><strong>${salesAvailable ? money(post.revenueVnd) : "—"}</strong>
-        <span>${salesAvailable ? `${post.paidCount} đơn đã thanh toán` : "Chưa đọc được doanh thu"}</span></div>
+      <div class="admin-post-revenue"><strong>${salesAvailable ? money(post.revenueVnd) : "-"}</strong>
+        <span>${salesAvailable ? `${post.paidCount} đơn đã thanh toán` : "Không thể tải doanh thu"}</span></div>
       <div class="button-row">${moderationButtons(post)}</div></li>`;
     })
     .join("");
   return (
     (rows
       ? `<ul class="surface admin-post-list" aria-label="Doanh thu demo theo tác phẩm">${rows}</ul>`
-      : empty("Chưa có bài đăng.")) +
+      : empty("Chưa có tác phẩm nào.")) +
     pagination(
       page,
       hasNext,
       (p) => "#admin/posts?page=" + p,
       link,
-      "Trang danh sách bài đăng",
+      "Trang danh sách tác phẩm",
     )
   );
 }
@@ -153,7 +153,7 @@ export async function admin(
   if (user?.role !== "ADMIN")
     return heading(
       "Khu vực quản trị",
-      "Đăng nhập với tài khoản admin.",
+      "Đăng nhập bằng tài khoản quản trị viên.",
       link("Tài khoản", "#account"),
     );
   const data = ["accounts", "posts"].includes(tab) ? null : await api("admin");
@@ -165,12 +165,12 @@ export async function admin(
     event = { title: "", description: "", enabled: false, posts: [] },
   ) => `<form class="surface edit-form" data-event-id="${esc(event.id || "")}">
   <label>Tên sự kiện<input name="title" maxlength="80" required value="${esc(event.title)}"></label><label>Mô tả<textarea name="description" maxlength="240">${esc(event.description)}</textarea></label>
-  <label class="check"><input type="checkbox" name="enabled" ${event.enabled ? "checked" : ""}> Hiện trên Trang chủ</label>
-  <fieldset><legend>Bài đã phát hành</legend>${data.posts
+  <label class="check"><input type="checkbox" name="enabled" ${event.enabled ? "checked" : ""}> Hiện trên trang chủ</label>
+  <fieldset><legend>Tác phẩm đã phát hành</legend>${data.posts
     .filter((p) => p.status === "PUBLISHED" || event.posts.includes(p.id))
     .map(
       (p) =>
-        `<label class="check"><input type="checkbox" name="posts" value="${esc(p.id)}" ${event.posts.includes(p.id) ? "checked" : ""}> ${esc(p.title)}${p.status === "HIDDEN" ? " · Đã ẩn" : ""}</label>`,
+        `<label class="check"><input type="checkbox" name="posts" value="${esc(p.id)}" ${event.posts.includes(p.id) ? "checked" : ""}> ${esc(p.title)}${p.status === "HIDDEN" ? " | Đã ẩn" : ""}</label>`,
     )
     .join("")}</fieldset>
   <button class="btn dark">${event.id ? "Lưu sự kiện" : "Tạo sự kiện"}</button><p role="status"></p></form>`;
@@ -178,7 +178,7 @@ export async function admin(
     accounts: () => accountsView({ api, esc, empty, button, link }, params),
     overview: () =>
       `<div class="stats admin-overview-stats">${[
-        [data.totals.posts, "Tổng bài"],
+        [data.totals.posts, "Tổng tác phẩm"],
         [data.totals.published, "Đã phát hành"],
         [data.totals.premium, "Premium công khai"],
         [data.paid, "Đơn đã thanh toán"],
@@ -215,7 +215,7 @@ export async function admin(
   const tabs = [
     ["overview", "Tổng quan"],
     ["accounts", "Tài khoản"],
-    ["posts", "Bài đăng"],
+    ["posts", "Tác phẩm"],
     ["genres", "Thể loại"],
     ["events", "Sự kiện"],
     ["reports", "Báo cáo"],

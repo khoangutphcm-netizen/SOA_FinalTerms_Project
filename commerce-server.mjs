@@ -57,7 +57,7 @@ function send(res, status, data) {
 
 async function recordTestPurchase(id, caller, expectedPrice, post) {
   if (post.author_id === caller.id || Number(post.price_vnd) <= 0) {
-    throw problem(409, "Chỉ mua thử bài premium của người khác.");
+    throw problem(409, "Chỉ có thể mua thử tác phẩm Premium của người khác.");
   }
   return withCommerceDb(async (client) => {
     await client.query("BEGIN");
@@ -79,7 +79,7 @@ async function recordTestPurchase(id, caller, expectedPrice, post) {
         return { ...existing, reused: true };
       }
       if (expectedPrice !== Number(post.price_vnd))
-        throw problem(409, "Giá đã thay đổi. Tải lại bài để xác nhận.");
+        throw problem(409, "Giá đã thay đổi. Hãy tải lại tác phẩm để xác nhận.");
       const balanceVnd = await debitWallet(client, caller.id, expectedPrice);
       const {
         rows: [order],
@@ -90,7 +90,7 @@ async function recordTestPurchase(id, caller, expectedPrice, post) {
         ON CONFLICT (buyer_id,post_id) WHERE status='PENDING' DO NOTHING RETURNING id`,
         [caller.id, id, post.price_vnd],
       );
-      if (!order) throw problem(409, "Đã có một đơn đang chờ cho bài này.");
+      if (!order) throw problem(409, "Đã có một đơn đang chờ cho tác phẩm này.");
       await client.query(
         `
         INSERT INTO public.payment_events (order_id,provider,event_key,payload)

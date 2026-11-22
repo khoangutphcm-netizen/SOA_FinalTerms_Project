@@ -154,7 +154,7 @@ function card(p, { quickSave = false, compact = false } = {}) {
       : "";
   const video = cover && p.cover_kind === "VIDEO";
   const paid = Number(p.price_vnd) > 0;
-  const metadata = [...kinds, ...(p.genres || [])].join(" · ");
+  const metadata = [...kinds, ...(p.genres || [])].join(" | ");
   const showDetails = compact && Boolean(metadata || paid);
   const availablePrice =
     p.moderation_state === "TAKEN_DOWN"
@@ -162,7 +162,7 @@ function card(p, { quickSave = false, compact = false } = {}) {
       : p.withdrawn_at
         ? "Đã gỡ khỏi Khám phá"
         : p.moderation_state === "TEMP_HIDDEN"
-          ? "Tạm ẩn · Người mua vẫn xem được"
+          ? "Tạm ẩn | Người mua vẫn xem được"
           : p.status === "HIDDEN"
             ? "Không khả dụng"
             : price(p);
@@ -180,7 +180,7 @@ function card(p, { quickSave = false, compact = false } = {}) {
   ${
     compact
       ? `<div class="card-body catalog-card-caption"><h3>${esc(p.title)}</h3><span class="catalog-card-tier${paid ? " is-paid" : ""}">${paid ? "Trả phí" : "Miễn phí"}</span></div>`
-      : `<div class="card-body"><div class="catalog-card-meta"><span class="category">${esc(kinds.join(" · "))}</span>${p.genres?.length ? `<span>${esc(p.genres.join(" · "))}</span>` : ""}</div><h3>${esc(p.title)}</h3>
+      : `<div class="card-body"><div class="catalog-card-meta"><span class="category">${esc(kinds.join(" | "))}</span>${p.genres?.length ? `<span>${esc(p.genres.join(" | "))}</span>` : ""}</div><h3>${esc(p.title)}</h3>
   <p>${esc(availablePrice)}</p></div>`
   }</a>
   ${showDetails ? `<button type="button" class="catalog-card-info" data-card-info aria-label="Thông tin tác phẩm ${esc(p.title)}" aria-controls="${infoId}" aria-expanded="false"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8h.01" stroke-linecap="round"/></svg></button>` : ""}
@@ -368,7 +368,7 @@ function updateBrowse(form, delay = 0) {
       results.innerHTML = browseResults(posts);
       status.textContent = posts.length
         ? `Hiển thị ${posts.length} tác phẩm.`
-        : "Không có kết quả.";
+        : "";
     } catch {
       if (request !== browseRequest || !form.isConnected) return;
       status.textContent =
@@ -460,9 +460,9 @@ function moderationButtons(post) {
 function postActions(p) {
   if (!["DRAFT", "PUBLISHED"].includes(p.status)) return "";
   return (
-    link("Sửa bài", "#edit/" + encodeURIComponent(p.id)) +
+    link("Sửa tác phẩm", "#edit/" + encodeURIComponent(p.id)) +
     button(
-      p.status === "DRAFT" ? "Xóa nháp" : "Gỡ bài",
+      p.status === "DRAFT" ? "Xóa nháp" : "Gỡ tác phẩm",
       "remove-post",
       p.id,
       p.status,
@@ -473,7 +473,7 @@ function publishedEditor({ post, media, genres: assigned }, genres) {
   const publicMedia = media.filter((file) => !file.premium);
   return (
     heading(
-      "Sửa bài đã phát hành",
+      "Sửa tác phẩm đã phát hành",
       "Bạn có thể sửa thông tin, ảnh đại diện và chế độ tự chuyển ảnh.",
       link("Hủy", postLink(post)),
     ) +
@@ -484,7 +484,7 @@ function publishedEditor({ post, media, genres: assigned }, genres) {
   <label>Thể loại<select name="genre">${genreOptions(genres, assigned)}</select></label>
   <label>Ảnh đại diện<select name="cover"><option value="">Giữ ảnh đại diện hiện tại</option>
    ${publicMedia.map((file) => `<option value="${esc(file.id)}">${esc(file.filename)}</option>`).join("")}</select></label>
-  <label class="check"><input name="autoCycle" type="checkbox" ${post.auto_cycle ? "checked" : ""}> Tự chuyển ảnh mỗi 7 giây khi mở bài</label>
+  <label class="check"><input name="autoCycle" type="checkbox" ${post.auto_cycle ? "checked" : ""}> Tự chuyển ảnh mỗi 7 giây khi mở tác phẩm</label>
   <p class="muted">Tệp, trạng thái Premium và giá được giữ nguyên để người mua tiếp tục truy cập nội dung đã mua.</p>
   <button class="btn dark">Lưu thay đổi</button><p role="status" class="muted"></p></form>`
   );
@@ -493,7 +493,7 @@ const galleryFrame = (media, i) => renderGalleryFrame(media, i, { empty, esc, ki
 const galleryStrip = (media, selected) => renderGalleryStrip(media, selected, { esc, kindNames, autoCycle: Boolean(cycleOverrides.get(galleryPost)) });
 
 const likeButtonText = (liked, count) =>
-  `${liked ? "Bỏ thích" : "Thích"} · ${count}`;
+  `${liked ? "Bỏ thích" : "Thích"} | ${count}`;
 const commentRow = (comment) =>
   `<div class="post-comment">${avatar({ id: comment.authorId, alias: comment.author, avatarVersion: comment.avatarVersion }, esc)}<div><strong>${esc(comment.author || "Người dùng PCK")}</strong><p>${esc(comment.body)}</p></div></div>`;
 
@@ -568,11 +568,11 @@ async function detail(id) {
   const walletDetails =
     balance === null
       ? user
-        ? "<p>Chưa đọc được số dư demo.</p>"
+        ? "<p>Không thể tải số dư demo.</p>"
         : ""
       : `<div class="checkout-balance"><span>Số dư demo <strong>${money(balance)}</strong></span>${
           balance < amount
-            ? `<a href="#account/wallet?post=${encodeURIComponent(id)}">Nạp thử · Còn thiếu ${money(amount - balance)}</a>`
+            ? `<a href="#account/wallet?post=${encodeURIComponent(id)}">Nạp thử | Còn thiếu ${money(amount - balance)}</a>`
             : `<span>Sau khi mua <strong>${money(balance - amount)}</strong></span>`
         }</div>`;
   const form = (name, label) =>
@@ -585,18 +585,18 @@ async function detail(id) {
       `<div class="detail"><section id="post-media"></section>
  <aside class="surface detail-summary">${author ? `<div class="post-author">${post.author ? avatar({ id: post.author_id, alias: author, avatarVersion: post.authorAvatarVersion }, esc) : ""}<span>${esc(author)}</span></div>` : ""}<p class="category">${esc(published ? (premiumCount ? "Premium" : "Miễn phí") : postStatus(post))}</p>
  <h2>${esc(published ? price(post) : post.title)}</h2>
- <p>${media.length} tệp trong tác phẩm${premiumCount ? ` · ${premiumCount} tệp Premium` : ""}</p>
+ <p>${media.length} tệp trong tác phẩm${premiumCount ? ` | ${premiumCount} tệp Premium` : ""}</p>
  ${
    published && locked
      ? purchaseAvailable
-       ? `<p>Một lần mua mở ${premiumCount} tệp Premium.</p>${walletDetails}${balance === null || balance >= amount ? `<div class="detail-purchase">${button(user ? "Mua bằng số dư demo" : "Đăng nhập để mua", "test-purchase", id, post.price_vnd)}<p class="purchase-status" role="status"></p></div>` : ""}`
+       ? `<p>Một lần mua mở khóa ${premiumCount} tệp Premium.</p>${walletDetails}${balance === null || balance >= amount ? `<div class="detail-purchase">${button(user ? "Mua bằng số dư demo" : "Đăng nhập để mua", "test-purchase", id, post.price_vnd)}<p class="purchase-status" role="status"></p></div>` : ""}`
        : "<p>Tạm dừng mua vì có tệp Premium không khả dụng.</p>"
      : ""
  }
  ${premiumCount && !locked && media.some((file) => file.url) ? "<p>Chọn một tệp còn khả dụng để tải bản gốc.</p>" : ""}
  ${post.description ? `<p class="detail-description">${esc(post.description)}</p>` : ""}
  ${data.canManage ? `<div class="button-row post-actions">${data.canPublish ? button("Phát hành", "publish", id) : ""}${postActions(post)}</div>` : ""}
- ${published ? `<div class="button-row">${socialAvailable ? `<button type="button" class="btn light" data-action="${data.liked ? "unlike" : "like"}" data-id="${esc(id)}" aria-pressed="${data.liked}">${likeButtonText(data.liked, data.likes)}</button>${button(data.saved ? "Bỏ lưu" : "Xem sau", data.saved ? "unsave" : "save", id)}` : ""}${button("Thêm vào bộ sưu tập", "collection-add", id)}</div>` : ""}</aside></div>
+ ${published ? `<div class="button-row detail-social-actions">${socialAvailable ? `<button type="button" class="btn light" data-action="${data.liked ? "unlike" : "like"}" data-id="${esc(id)}" aria-pressed="${data.liked}">${likeButtonText(data.liked, data.likes)}</button>${button(data.saved ? "Bỏ lưu" : "Xem sau", data.saved ? "unsave" : "save", id)}` : ""}${button("Thêm vào bộ sưu tập", "collection-add", id)}</div>` : ""}</aside></div>
  ${
    published
      ? `<section class="surface comments"><h2>Bình luận</h2>${
@@ -604,7 +604,7 @@ async function detail(id) {
            ? `<div data-post-comments>${data.comments.length ? data.comments.map(commentRow).join("") : "<p data-comments-empty>Chưa có bình luận.</p>"}</div>` +
              (user
                ? form("comments-form", "Viết bình luận") +
-                 `<details><summary>Báo cáo bài</summary>${form("report-form", "Lý do báo cáo")}</details>`
+                 `<details><summary>Báo cáo tác phẩm</summary>${form("report-form", "Lý do báo cáo")}</details>`
                : button("Đăng nhập để bình luận", "login", "post/" + id))
            : "<p>Bình luận và tương tác tạm thời không khả dụng. Bạn vẫn có thể xem tác phẩm.</p>"
        }</section>`
@@ -660,7 +660,7 @@ function scheduleGallery() {
 function ownPostCards(posts, query = "") {
   if (!posts.length)
     return empty(
-      query ? "Không tìm thấy bài phù hợp." : "Bạn chưa đăng tác phẩm nào.",
+      query ? "Không tìm thấy tác phẩm phù hợp." : "Bạn chưa đăng tác phẩm nào.",
     );
   return `<div class="own-post-grid">${posts
     .map((post) => {
@@ -700,7 +700,7 @@ function searchOwnPosts(input, delay = 250) {
       const { posts } = await api("posts?" + new URLSearchParams({ q: query }));
       if (request !== ownPostsRequest || !input.isConnected) return;
       results.innerHTML = ownPostCards(posts, query);
-      status.textContent = posts.length ? `Hiển thị ${posts.length} bài.` : "";
+      status.textContent = posts.length ? `Hiển thị ${posts.length} tác phẩm.` : "";
     } catch (error) {
       if (request === ownPostsRequest && input.isConnected)
         status.textContent = error.message;
@@ -712,10 +712,10 @@ function searchOwnPosts(input, delay = 250) {
 }
 
 async function account(tab = "profile", returnPost, stripeStatus) {
-  if (!user) return loginRequired("Đăng nhập để xem bài và nội dung của bạn.");
+  if (!user) return loginRequired("Đăng nhập để xem tác phẩm và nội dung của bạn.");
   const tabs = [
     ["profile", "Hồ sơ"],
-    ["posts", "Bài của tôi"],
+    ["posts", "Tác phẩm của tôi"],
     ["saved", "Xem sau"],
     ["purchases", "Đã mua"],
     ["collections", "Bộ của tôi"],
@@ -725,8 +725,8 @@ async function account(tab = "profile", returnPost, stripeStatus) {
   let content;
   if (tab === "posts") {
     const { posts } = await api("posts");
-    content = `<section aria-label="Bài của tôi"><form id="own-post-search" role="search" aria-label="Tìm bài của tôi">
-      <input type="search" name="q" maxlength="100" aria-label="Tìm bài của tôi" placeholder="Tìm theo tên hoặc mô tả bài…">
+    content = `<section aria-label="Tác phẩm của tôi"><form id="own-post-search" role="search" aria-label="Tìm tác phẩm của tôi">
+      <input type="search" name="q" maxlength="100" aria-label="Tìm tác phẩm của tôi" placeholder="Tìm theo tên hoặc mô tả tác phẩm…">
     </form><p class="muted" id="own-post-status" role="status"></p>
     <div id="own-post-results">${ownPostCards(posts)}</div></section>`;
   } else if (tab === "saved") {
@@ -1262,13 +1262,13 @@ app.addEventListener("click", async (event) => {
     }
     if (action === "publish") {
       await api("publish/" + id, { method: "PUT" });
-      notice("Đã phát hành. Khách có thể tìm bài trong Khám phá.");
+      notice("Đã phát hành. Mọi người có thể tìm thấy tác phẩm trong mục Khám phá.");
     }
     if (action === "remove-post") {
       const draft = next === "DRAFT";
       const message = draft
-        ? "Xóa vĩnh viễn bản nháp và các tệp của bài này?"
-        : "Gỡ bài khỏi Khám phá? Người đã mua vẫn xem được tệp của họ.";
+        ? "Xóa vĩnh viễn bản nháp và các tệp của tác phẩm này?"
+        : "Gỡ tác phẩm khỏi Khám phá? Người đã mua vẫn xem được tệp của họ.";
       if (!window.confirm(message)) {
         control.disabled = false;
         return;
@@ -1279,7 +1279,7 @@ app.addEventListener("click", async (event) => {
       notice(
         result.status === "DELETED"
           ? "Đã xóa bản nháp."
-          : "Đã gỡ bài khỏi Khám phá.",
+          : "Đã gỡ tác phẩm khỏi mục Khám phá.",
       );
       go("account/posts");
       return;
@@ -1670,7 +1670,7 @@ app.addEventListener("submit", async (event) => {
       });
       if (!dialog.isConnected) return;
       form.reset();
-      status.innerHTML = `Đã tạo bộ và thêm tác phẩm. <a href="#collection/${encodeURIComponent(collection.id)}">Mở bộ sưu tập</a>`;
+      status.innerHTML = `Đã tạo bộ sưu tập và thêm tác phẩm. <a href="#collection/${encodeURIComponent(collection.id)}">Mở bộ sưu tập</a>`;
       await refreshCollectionPicker(dialog).catch((error) => {
         dialog.querySelector("[data-picker-status]").textContent =
           error.message;

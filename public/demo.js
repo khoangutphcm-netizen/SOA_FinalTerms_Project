@@ -37,7 +37,7 @@ login.addEventListener("submit", (event) => {
     (result) => {
       upload.hidden = false;
       login.elements.password.value = "";
-      return "Đã đăng nhập " + result.alias + " · " + result.role;
+      return "Đã đăng nhập " + result.alias + " | " + result.role;
     },
   );
 });
@@ -54,9 +54,9 @@ upload.addEventListener("submit", (event) => {
       return (
         "Đã lưu " +
         result.status +
-        " · Bài " +
+        " | Bài " +
         result.postId +
-        " · Tệp " +
+        " | Tệp " +
         result.assetId
       );
     },

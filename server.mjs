@@ -16,6 +16,7 @@ const assets = {
   "/assets/welcome/welcome2.png": ["assets/welcome/welcome2.png", "image/png"],
   "/assets/welcome/welcome3.png": ["assets/welcome/welcome3.png", "image/png"],
   "/": ["concept/index.html", "text/html; charset=utf-8"],
+  "/favicon.svg": ["concept/favicon.svg", "image/svg+xml"],
   "/db-check": ["index.html", "text/html; charset=utf-8"],
   "/app.js": ["app.js", "text/javascript; charset=utf-8"],
   "/demo": ["concept/index.html", "text/html; charset=utf-8"],

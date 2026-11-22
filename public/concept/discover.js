@@ -65,7 +65,7 @@ export async function discover({
       : ""
   }
   </div></details><button type="button" class="browse-reset" data-browse-reset>Xóa bộ lọc</button>
-  <p class="muted browse-status" role="status">${catalog.status === "rejected" ? "Chưa tải được kết quả. Nhấn Tìm kiếm để thử lại." : catalog.value.posts.length ? `Hiển thị ${catalog.value.posts.length} tác phẩm.` : "Không có kết quả."}</p></div>
+  <p class="muted browse-status" role="status">${catalog.status === "rejected" ? "Chưa tải được kết quả. Nhấn Tìm kiếm để thử lại." : catalog.value.posts.length ? `Hiển thị ${catalog.value.posts.length} tác phẩm.` : ""}</p></div>
   </form><div id="browse-results">${catalog.value ? browseResults(catalog.value.posts) : ""}</div></div>`
   );
 }

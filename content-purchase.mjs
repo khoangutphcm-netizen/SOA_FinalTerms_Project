@@ -12,9 +12,9 @@ export async function testPurchase(id, caller, expectedPrice) {
       );
       if (!post) throw problem(409, "Tác phẩm hiện không mở bán.");
       if (post.author_id === caller.id || Number(post.price_vnd) <= 0)
-        throw problem(409, "Chỉ mua thử bài premium của người khác.");
+        throw problem(409, "Chỉ có thể mua thử tác phẩm Premium của người khác.");
       if (expectedPrice !== Number(post.price_vnd))
-        throw problem(409, "Giá đã thay đổi. Tải lại bài để xác nhận.");
+        throw problem(409, "Giá đã thay đổi. Hãy tải lại tác phẩm để xác nhận.");
       const { rows: files } = await content.query(
         `SELECT ${originalExists} AS available FROM public.assets a WHERE a.post_id=$1 AND a.purpose='FULL' AND a.status='READY'`,
         [id],

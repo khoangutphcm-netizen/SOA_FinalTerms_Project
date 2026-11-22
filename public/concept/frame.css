@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light;
   --bg: #f7f7f4;
   --ink: #20211e;
   --muted: #696c65;
@@ -6,6 +7,8 @@
   --accent: #e8ff65;
   --card: #fff;
   --radius: 20px;
+  --input-border: #8b8d87;
+  --logo-dot: #526900;
 }
 * {
   box-sizing: border-box;
@@ -54,7 +57,7 @@ a {
   letter-spacing: -2px;
 }
 .logo span {
-  color: #879a13;
+  color: var(--logo-dot);
 }
 .nav {
   display: flex;
