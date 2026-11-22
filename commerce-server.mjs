@@ -1,7 +1,10 @@
 import { createServer } from "node:http";
 import { bindHost, servicePort } from "./service-network.mjs";
 import { connect } from "./demo-accounts.mjs";
-import { changeWallet, debitWallet, topUpLimits, topUpAmountMessage, validTopUpAmount, topUpWallet, walletSummary } from "./commerce-wallet.mjs";
+import {
+  changeWallet, creditSeller, debitWallet, lockPurchaseWallets,
+  topUpLimits, topUpAmountMessage, validTopUpAmount, topUpWallet, walletSummary,
+} from "./commerce-wallet.mjs";
 import { createCheckout, handleStripeWebhook } from "./commerce-stripe.mjs";
 
 const token = process.env.PCK_INTERNAL_TOKEN;
@@ -90,15 +93,17 @@ async function recordTestPurchase(id, caller, expectedPrice, post) {
       }
       if (expectedPrice !== Number(post.price_vnd))
         throw problem(409, "Giá đã thay đổi. Hãy tải lại tác phẩm để xác nhận.");
+      await lockPurchaseWallets(client, caller.id, post.author_id);
       const balanceVnd = await debitWallet(client, caller.id, expectedPrice);
+      const sellerBalanceVnd = await creditSeller(client, post.author_id, expectedPrice);
       const {
         rows: [order],
       } = await client.query(
         `
-        INSERT INTO public.orders (buyer_id,post_id,amount_vnd,provider,expires_at)
-        VALUES ($1,$2,$3,'PCK_WALLET_TEST',now()+interval '15 minutes')
+        INSERT INTO public.orders (buyer_id,post_id,amount_vnd,seller_id,provider,expires_at)
+        VALUES ($1,$2,$3,$4,'PCK_WALLET_TEST',now()+interval '15 minutes')
         ON CONFLICT (buyer_id,post_id) WHERE status='PENDING' DO NOTHING RETURNING id`,
-        [caller.id, id, post.price_vnd],
+        [caller.id, id, post.price_vnd, post.author_id],
       );
       if (!order) throw problem(409, "Đã có một đơn đang chờ cho tác phẩm này.");
       await client.query(
@@ -115,6 +120,11 @@ async function recordTestPurchase(id, caller, expectedPrice, post) {
         `INSERT INTO public.wallet_entries (user_id,kind,amount_vnd,balance_after_vnd,order_id,post_id)
          VALUES ($1,'PURCHASE',-$2::bigint,$3,$4,$5)`,
         [caller.id, expectedPrice, balanceVnd, order.id, id],
+      );
+      await client.query(
+        `INSERT INTO public.wallet_entries (user_id,kind,amount_vnd,balance_after_vnd,sale_order_id,post_id)
+         VALUES ($1,'SALE_EARNING',$2,$3,$4,$5)`,
+        [post.author_id, expectedPrice, sellerBalanceVnd, order.id, id],
       );
       await client.query(
         "INSERT INTO public.entitlements (buyer_id,post_id,source_order_id) VALUES ($1,$2,$3)",
@@ -198,6 +208,26 @@ const server = createServer(async (req, res) => {
         throw problem(400, "Danh sách tác phẩm không hợp lệ.");
       return send(res, 200, postIds.length ? await paidSales(postIds) : []);
     }
+    if (req.method === "POST" && pathname === "/sales/report") {
+      const { sellerId, legacyPostIds, includeSeller, from, to } = (await readBody(req)) ?? {};
+      const reportDate = (date) => date === null || (typeof date === "string" &&
+        /^[1-9]\d{3}-(0[1-9]|1[0-2])-01$/.test(date));
+      if (typeof sellerId !== "string" || !uuid.test(sellerId) ||
+          !Array.isArray(legacyPostIds) || legacyPostIds.length > 90 ||
+          legacyPostIds.some(id => typeof id !== "string" || !uuid.test(id)) ||
+          typeof includeSeller !== "boolean" || !reportDate(from) || !reportDate(to))
+        throw problem(400, "Kỳ báo cáo hoặc danh sách tác phẩm không hợp lệ.");
+      return send(res, 200, await rows(
+        `SELECT post_id, count(*)::int AS "paidCount", sum(amount_vnd)::text AS "revenueVnd",
+                max(paid_at) AS "lastSoldAt"
+         FROM public.orders WHERE status='PAID'
+           AND (($2::boolean AND seller_id=$1) OR (seller_id IS NULL AND post_id=ANY($3::uuid[])))
+           AND ($4::date IS NULL OR paid_at >= ($4::date::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh'))
+           AND ($5::date IS NULL OR paid_at < ($5::date::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh'))
+         GROUP BY post_id`,
+        [sellerId, includeSeller, legacyPostIds, from, to],
+      ));
+    }
     if (req.method === "POST" && pathname === "/admin/wallet-balances") {
       const { userIds } = (await readBody(req)) ?? {};
       if (!Array.isArray(userIds) || userIds.length > 25 ||
@@ -242,8 +272,8 @@ const server = createServer(async (req, res) => {
       return send(
         res,
         200,
-        await recordTestPurchase(postId, { id: buyerId }, price, {
-          author_id: authorId,
+        await recordTestPurchase(postId.toLowerCase(), { id: buyerId.toLowerCase() }, price, {
+          author_id: authorId.toLowerCase(),
           price_vnd: price,
         }),
       );

@@ -14,6 +14,7 @@ import {
   money,
   profilePage,
   purchaseLibrary,
+  revenuePage,
   walletPage,
 } from "./account-extras.js";
 
@@ -697,16 +698,6 @@ function scheduleGallery() {
   }, 7000);
 }
 
-function sellerSalesSummary(sales) {
-  return `<section class="surface seller-sales-summary" aria-labelledby="seller-sales-title">
-    <div><h2 id="seller-sales-title">Doanh thu demo</h2><p class="muted">Tính từ các đơn đã thanh toán.</p></div>
-    ${sales ? `<dl class="seller-sales-totals">
-      <div><dt>Tổng doanh thu</dt><dd>${money(sales.revenueVnd)}</dd></div>
-      <div><dt>Lượt bán</dt><dd>${sales.paidCount.toLocaleString("vi-VN")}</dd></div>
-    </dl>` : '<p class="muted">Chưa tải được số liệu doanh thu. Hãy thử lại sau.</p>'}
-  </section>`;
-}
-
 function ownPostCards(posts, query = "") {
   if (!posts.length)
     return empty(
@@ -763,7 +754,7 @@ function searchOwnPosts(input, delay = 250) {
   }, delay);
 }
 
-async function account(tab = "profile", returnPost, stripeStatus) {
+async function account(tab = "profile", query) {
   if (!user) return loginRequired("Đăng nhập để xem tác phẩm và nội dung của bạn.");
   const tabs = [
     ["profile", "Hồ sơ"],
@@ -772,12 +763,13 @@ async function account(tab = "profile", returnPost, stripeStatus) {
     ["purchases", "Đã mua"],
     ["collections", "Bộ của tôi"],
     ["wallet", "Số dư"],
+    ["revenue", "Doanh thu"],
   ];
   if (!tabs.some(([id]) => id === tab)) tab = "profile";
   let content;
   if (tab === "posts") {
-    const { posts, salesSummary } = await api("posts?summary=1");
-    content = sellerSalesSummary(salesSummary) + `<section aria-label="Tác phẩm của tôi"><form id="own-post-search" role="search" aria-label="Tìm tác phẩm của tôi">
+    const { posts } = await api("posts");
+    content = `<section aria-label="Tác phẩm của tôi"><form id="own-post-search" role="search" aria-label="Tìm tác phẩm của tôi">
       <input type="search" name="q" maxlength="100" aria-label="Tìm tác phẩm của tôi" placeholder="Tìm theo tên hoặc mô tả tác phẩm…">
     </form><p class="muted" id="own-post-status" role="status"></p>
     <div id="own-post-results">${ownPostCards(posts)}</div></section>`;
@@ -798,7 +790,15 @@ async function account(tab = "profile", returnPost, stripeStatus) {
   } else if (tab === "purchases") {
     content = purchaseLibrary((await api("purchases")).posts, esc, postLink);
   } else if (tab === "wallet") {
-    content = walletPage(await api("wallet"), esc, returnPost, stripeStatus);
+    content = walletPage(await api("wallet"), esc, query.get("post"), query.get("stripe"));
+  } else if (tab === "revenue") {
+    try {
+      content = revenuePage(await api("revenue?" + query), esc, postLink);
+    } catch (error) {
+      content = `<section class="surface revenue-empty"><h2>Doanh thu</h2>
+        <p role="status" class="muted">${esc(error.message)}</p>
+        ${button("Mở lại báo cáo", "retry-revenue")}</section>`;
+    }
   } else if (tab === "collections") {
     const { collections } = await api("my-collections");
     content =
@@ -928,12 +928,7 @@ async function render({ selectedMediaId } = {}) {
         id,
       ),
     more,
-    account: () =>
-      account(
-        id,
-        new URLSearchParams(rawQuery).get("post"),
-        new URLSearchParams(rawQuery).get("stripe"),
-      ),
+    account: () => account(id, new URLSearchParams(rawQuery)),
     admin: () =>
       admin(
         {
@@ -1081,6 +1076,10 @@ for (const eventName of ["playing", "pause", "ended"]) {
   );
 }
 app.addEventListener("click", async (event) => {
+  if (event.target.closest('[data-action="retry-revenue"]')) {
+    go("account/revenue");
+    return;
+  }
   const pickerClose = event.target.closest(
     "[data-collection-close], [data-admin-credit-close]",
   );
@@ -1399,6 +1398,11 @@ app.addEventListener("click", async (event) => {
 });
 app.addEventListener("change", (event) => {
   const field = event.target;
+  if (field.form?.id === "revenue-filters" && field.name === "period") {
+    const { year, month } = field.form.elements;
+    year.closest("label").hidden = year.disabled = field.value === "all";
+    month.closest("label").hidden = month.disabled = field.value !== "month";
+  }
   if (field.form?.id === "purchase-filter") filterPurchases(field.form);
   if (field.form?.id === "browse-form" && field.matches("select"))
     filterBrowse(field.form);
@@ -1482,7 +1486,7 @@ app.addEventListener(
     }
     if (
       event.target.matches?.(
-        ".gallery-thumb-poster, .collection-cover-pane img",
+        ".gallery-thumb-poster, .collection-cover-pane img, .revenue-thumb img",
       )
     ) {
       const image = event.target;
@@ -1549,6 +1553,10 @@ app.addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.target,
     data = new FormData(form);
+  if (form.id === "revenue-filters") {
+    go("account/revenue?" + new URLSearchParams(data));
+    return;
+  }
   if (form.id === "admin-accounts-search") {
     const params = new URLSearchParams();
     for (const [name, value] of data) {

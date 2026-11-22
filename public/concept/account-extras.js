@@ -80,9 +80,10 @@ export function walletPage(wallet, esc, returnPost, stripeStatus) {
         ADMIN_CREDIT: "Quản trị viên cộng tiền",
         ADMIN_DEBIT: "Quản trị viên giảm số dư",
         PURCHASE: "Mua tác phẩm",
+        SALE_EARNING: "Thu từ bán tác phẩm",
       }[entry.kind];
       const credit = Number(entry.amount_vnd) > 0;
-      return `<li><div><strong>${esc(label)}</strong><span>${esc(date(entry.created_at))}</span></div>
+      return `<li><div><strong>${esc(label)}</strong>${entry.post_title ? `<span>${esc(entry.post_title)}</span>` : ""}<span>${esc(date(entry.created_at))}</span></div>
       <div><strong class="${credit ? "wallet-credit" : ""}">${credit ? "+" : "−"}${money(Math.abs(Number(entry.amount_vnd)))}</strong>
       <span>Còn ${money(entry.balance_after_vnd)}</span></div></li>`;
     })
@@ -100,6 +101,66 @@ export function walletPage(wallet, esc, returnPost, stripeStatus) {
     ${returnPost ? `<a href="#post/${encodeURIComponent(returnPost)}">Quay lại tác phẩm</a>` : ""}
   </div><section class="surface wallet-history"><h2>Lịch sử giao dịch</h2>
     ${ledger ? `<ul>${ledger}</ul>` : '<p class="muted">Chưa có giao dịch số dư.</p>'}</section>`;
+}
+
+const reportDate = new Intl.DateTimeFormat("vi-VN", {
+  dateStyle: "short", timeZone: "Asia/Ho_Chi_Minh",
+});
+
+export function revenuePage({ period, year, month, sort, q, page, lastPage, summary, posts }, esc, postLink) {
+  const options = (choices, selected) => choices.map(([value, label]) =>
+    `<option value="${value}"${value === selected ? " selected" : ""}>${label}</option>`).join("");
+  const periodLabel = period === "all" ? "Toàn thời gian" : period === "year"
+    ? `Năm ${year}` : `Tháng ${month}/${year}`;
+  const pageLink = (target) => "#account/revenue?" + new URLSearchParams({ period, year, month, sort, q, page: target });
+  return `<section class="account-revenue" aria-labelledby="seller-sales-title">
+    <div class="surface seller-sales-summary">
+      <div><h2 id="seller-sales-title">Doanh thu</h2><p class="muted">${periodLabel} · Đơn đã thanh toán${q ? " · Tổng cả kỳ" : ""}</p></div>
+      <dl class="seller-sales-totals">
+        <div><dt>Tổng doanh thu</dt><dd>${money(summary.revenueVnd)}</dd></div>
+        <div><dt>Lượt bán</dt><dd>${summary.paidCount.toLocaleString("vi-VN")}</dd></div>
+      </dl>
+    </div>
+    <form id="revenue-filters" class="revenue-filters" aria-label="Lọc doanh thu">
+      <label class="revenue-search">Tìm tác phẩm<input type="search" name="q" maxlength="100" value="${esc(q)}" placeholder="Nhập tên ảnh hoặc video"></label>
+      <label>Kỳ báo cáo<select name="period">${options([
+        ["month", "Theo tháng"], ["year", "Theo năm"], ["all", "Toàn thời gian"],
+      ], period)}</select></label>
+      <label${period !== "month" ? " hidden" : ""}>Tháng<select name="month"${period !== "month" ? " disabled" : ""}>${options(
+        Array.from({ length: 12 }, (_, i) => [i + 1, `Tháng ${i + 1}`]), month,
+      )}</select></label>
+      <label${period === "all" ? " hidden" : ""}>Năm<input type="number" name="year" required value="${year}" min="1000" max="9998" inputmode="numeric"${period === "all" ? " disabled" : ""}></label>
+      <label>Sắp xếp<select name="sort">${options([
+        ["revenue-desc", "Doanh thu cao nhất"], ["revenue-asc", "Doanh thu thấp nhất"],
+        ["sold", "Bán nhiều nhất"], ["recent", "Bán gần đây nhất"],
+      ], sort)}</select></label>
+      <button class="btn dark" type="submit">Áp dụng</button>
+    </form>
+    ${posts.length ? `<div class="surface revenue-table-wrap">
+      <table class="revenue-table" aria-label="Doanh thu theo tác phẩm">
+        <thead><tr><th scope="col">Tác phẩm</th><th scope="col">Lượt bán</th>
+          <th scope="col">Doanh thu</th><th scope="col" class="revenue-date">Bán gần nhất</th></tr></thead>
+        <tbody>${posts.map((post) => {
+          const latest = reportDate.format(new Date(post.lastSoldAt));
+          const thumb = `<span class="revenue-thumb" aria-hidden="true">
+            ${post.cover_id ? `<img src="/api/demo/media/${encodeURIComponent(post.cover_id)}?thumbnail=1" alt="" loading="lazy">` : ""}
+            ${post.cover_kind === "VIDEO" ? '<span class="revenue-video">Video</span>' : ""}
+          </span>`;
+          const title = `<span class="revenue-work-title">${esc(post.title)}</span>`;
+          const work = post.canOpen ? `<a class="revenue-work" href="${postLink(post)}">${thumb}${title}</a>`
+            : `<span class="revenue-work">${thumb}${title}</span>`;
+          return `<tr><th scope="row">${work}<span class="revenue-mobile-date">Bán gần nhất ${latest}</span></th>
+            <td>${post.paidCount.toLocaleString("vi-VN")}</td><td>${money(post.revenueVnd)}</td>
+            <td class="revenue-date">${latest}</td></tr>`;
+        }).join("")}</tbody>
+      </table>
+    </div>` : `<p class="surface revenue-empty muted">${q ? "Không tìm thấy tác phẩm đã bán khớp tên trong kỳ này." : "Bạn chưa có giao dịch bán tác phẩm trong kỳ này."}</p>`}
+    ${lastPage > 1 ? `<nav class="revenue-pagination" aria-label="Trang báo cáo">
+      ${page > 1 ? `<a class="btn light" href="${esc(pageLink(page - 1))}">Trang trước</a>` : ""}
+      <span>Trang ${page}/${lastPage}</span>
+      ${page < lastPage ? `<a class="btn light" href="${esc(pageLink(page + 1))}">Trang sau</a>` : ""}
+    </nav>` : ""}
+  </section>`;
 }
 
 const downloadLabels = {

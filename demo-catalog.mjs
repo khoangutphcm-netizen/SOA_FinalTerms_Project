@@ -4,6 +4,7 @@ import { groups, createCollection, myCollections, renameCollection, changeCollec
 import { adminDashboard, adminPosts, saveEvent } from "./content-admin.mjs";
 import { moderatePost } from "./content-moderation.mjs";
 import { commerce } from "./commerce-client.mjs";
+import { sellerReport, sellerWallet } from "./content-sales.mjs";
 import { catalog, sendMedia } from "./content-discovery.mjs";
 import {
   uuid,
@@ -456,7 +457,11 @@ export async function handleCatalog(req, res, path, send, caller, readJson) {
     }
     if (path === "/api/demo/wallet" && req.method === "GET") {
       requireUser();
-      return send(res, 200, await commerce("/wallet?" + new URLSearchParams({ buyerId:caller.id })));
+      return send(res, 200, await sellerWallet(caller.id));
+    }
+    if (path === "/api/demo/revenue" && req.method === "GET") {
+      requireUser();
+      return send(res, 200, await sellerReport(caller.id, search));
     }
     if (path === "/api/demo/wallet/top-up" && req.method === "POST") {
       requireUser();

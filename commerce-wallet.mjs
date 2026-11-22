@@ -69,3 +69,26 @@ export async function debitWallet(client, userId, amount) {
     ? `Số dư chưa đủ. Cần nạp thêm ${missing.toLocaleString("vi-VN")} ₫.`
     : "Số dư vừa thay đổi. Hãy xác nhận lại giao dịch.");
 }
+
+export async function lockPurchaseWallets(client, buyerId, sellerId) {
+  const users = [buyerId, sellerId];
+  // A stable order also covers two users buying from one another concurrently.
+  await client.query(
+    `INSERT INTO public.wallets (user_id) SELECT id FROM unnest($1::uuid[]) AS users(id)
+     ORDER BY id ON CONFLICT DO NOTHING`, [users],
+  );
+  await client.query(
+    "SELECT user_id FROM public.wallets WHERE user_id=ANY($1::uuid[]) ORDER BY user_id FOR UPDATE",
+    [users],
+  );
+}
+
+export async function creditSeller(client, sellerId, amount) {
+  const { rows: [wallet] } = await client.query(
+    `UPDATE public.wallets SET balance_vnd=balance_vnd+$2
+     WHERE user_id=$1 AND balance_vnd+$2<=1000000000 RETURNING balance_vnd`,
+    [sellerId, amount],
+  );
+  if (!wallet) throw problem(409, "Ví demo của người bán không thể nhận thêm khoản này do giới hạn số dư.");
+  return Number(wallet.balance_vnd);
+}

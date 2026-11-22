@@ -15,6 +15,8 @@ Web nhận yêu cầu tại cổng 3100 và chuyển API ứng dụng tới Cont
 
 Content gọi các service khác qua HTTP nội bộ. Người dùng đăng ký bằng email và xác minh OTP trước khi đăng nhập. Identity giữ tên hiển thị, giới thiệu và ảnh đại diện. Commerce giữ số dư và lịch sử ví demo. Mua bằng ví ghi đơn `PCK_WALLET_TEST` và cấp quyền xem, tải bản gốc. Mục **Tài khoản → Đã mua** tra cứu đơn theo tên, ngày, giá và trạng thái tải. **Bộ của tôi** quản lý các bộ sưu tập của tài khoản. Tệp gốc, preview và ảnh thu nhỏ được lưu trong `asset_blobs` trên Content DB Neon.
 
+**Tài khoản → Số dư** hiển thị ví demo và lịch sử nạp, chi, thu từ bán tác phẩm. Đơn mới trừ ví người mua, cộng ví người bán và cấp quyền tải trong cùng giao dịch Commerce. **Tài khoản → Doanh thu** tổng hợp đơn đã thanh toán theo tháng, năm hoặc toàn thời gian, kèm lượt bán và doanh thu từng tác phẩm. Đơn cũ vẫn được tính vào báo cáo. Số dư cũ được giữ nguyên.
+
 ## Việc cần làm theo ưu tiên
 
 - **P1: Nghiệp vụ và demo**: Kiểm thử Stripe Checkout sandbox từ giao diện đến webhook và ví, cùng các luồng OTP, đăng nhập, đăng bài, mua và tải. Phương thức thanh toán phụ thuộc cấu hình tài khoản Stripe.
@@ -54,7 +56,7 @@ Các lệnh dưới đây dùng PowerShell tại thư mục dự án.
    node --env-file=.env migrate-gallery.mjs
    ```
 
-   `migrate.mjs` hiện có lỗi nhận dạng SQL như ghi ở phần việc cần làm. Với DB đã có dữ liệu, áp dụng riêng các migration còn thiếu. Chạy [10_identity_profile.sql](migrations/10_identity_profile.sql) trên Identity, rồi [11_commerce_wallet.sql](migrations/11_commerce_wallet.sql) [13_commerce_admin_credit.sql](migrations/13_commerce_admin_credit.sql) và [14_commerce_admin_debit.sql](migrations/14_commerce_admin_debit.sql) theo thứ tự trên Commerce. Content có các migration riêng cho [kiểm duyệt](migrations/07_content_moderation.sql) và [preview](migrations/08_content_preview.sql).
+   `migrate.mjs` hiện có lỗi nhận dạng SQL như ghi ở phần việc cần làm. Với DB đã có dữ liệu, áp dụng riêng các migration còn thiếu. Chạy [10_identity_profile.sql](migrations/10_identity_profile.sql) trên Identity. Commerce có các migration [11_commerce_wallet.sql](migrations/11_commerce_wallet.sql), [13_commerce_admin_credit.sql](migrations/13_commerce_admin_credit.sql), [14_commerce_admin_debit.sql](migrations/14_commerce_admin_debit.sql) và [15_commerce_seller_earnings.sql](migrations/15_commerce_seller_earnings.sql) theo thứ tự. Content có các migration riêng cho [kiểm duyệt](migrations/07_content_moderation.sql) và [preview](migrations/08_content_preview.sql).
 
 4. Cài FFmpeg nếu cần tạo preview Premium, theo phần bên dưới. Nếu cần tài khoản admin demo trên DB riêng, chạy `node --env-file=.env seed-demo.mjs` rồi lấy thông tin tại `.pck-demo/accounts.json`.
 

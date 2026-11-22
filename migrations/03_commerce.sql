@@ -4,6 +4,7 @@ CREATE TABLE
     orders (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid (),
         buyer_id uuid NOT NULL, -- Identity.users.id
+        seller_id uuid, -- Identity.users.id at purchase time, NULL for older orders
         post_id uuid NOT NULL, -- Content.posts.id
         amount_vnd bigint NOT NULL CHECK (amount_vnd > 0),
         provider text NOT NULL CHECK (trim(provider) <> ''),
@@ -23,7 +24,9 @@ CREATE TABLE
             )
         ),
         UNIQUE (provider, provider_transaction_id),
-        UNIQUE (id, buyer_id, post_id)
+        UNIQUE (id, buyer_id, post_id),
+        CONSTRAINT orders_seller_post_key UNIQUE (id, seller_id, post_id),
+        CONSTRAINT orders_distinct_seller_check CHECK (seller_id IS NULL OR seller_id <> buyer_id)
     );
 
 CREATE UNIQUE INDEX orders_one_pending_idx ON orders (buyer_id, post_id)
@@ -31,6 +34,8 @@ WHERE
     status = 'PENDING';
 
 CREATE INDEX orders_history_idx ON orders (buyer_id, created_at DESC, id);
+CREATE INDEX orders_seller_paid_idx ON orders (seller_id, paid_at) WHERE status = 'PAID';
+CREATE INDEX orders_legacy_paid_idx ON orders (post_id, paid_at) WHERE seller_id IS NULL AND status = 'PAID';
 
 CREATE TABLE
     payment_events (
@@ -69,14 +74,17 @@ CREATE TABLE
         request_id uuid,
         actor_id uuid, -- Identity.users.id of the admin who credited the wallet
         order_id uuid UNIQUE,
+        sale_order_id uuid CONSTRAINT wallet_entries_sale_order_key UNIQUE,
         post_id uuid,
         created_at timestamptz NOT NULL DEFAULT now (),
         UNIQUE (user_id, request_id),
         FOREIGN KEY (order_id, user_id, post_id) REFERENCES orders (id, buyer_id, post_id),
+        CONSTRAINT wallet_entries_sale_order_fk FOREIGN KEY (sale_order_id, user_id, post_id) REFERENCES orders (id, seller_id, post_id),
         CONSTRAINT wallet_entries_kind_check CHECK (
             (
                 request_id IS NOT NULL
                 AND order_id IS NULL
+                AND sale_order_id IS NULL
                 AND post_id IS NULL
                 AND (
                     (
@@ -101,6 +109,16 @@ CREATE TABLE
                 AND amount_vnd < 0
                 AND request_id IS NULL
                 AND order_id IS NOT NULL
+                AND sale_order_id IS NULL
+                AND post_id IS NOT NULL
+                AND actor_id IS NULL
+            )
+            OR (
+                kind = 'SALE_EARNING'
+                AND amount_vnd > 0
+                AND request_id IS NULL
+                AND order_id IS NULL
+                AND sale_order_id IS NOT NULL
                 AND post_id IS NOT NULL
                 AND actor_id IS NULL
             )

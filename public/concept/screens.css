@@ -263,6 +263,36 @@ html[data-theme="dark"] textarea::placeholder {
 .seller-sales-totals { display: flex; flex-wrap: wrap; gap: 10px 28px; margin: 0; }
 .seller-sales-totals dt { color: var(--muted); font-size: .78rem; }
 .seller-sales-totals dd { margin: 2px 0 0; font-size: 1.35rem; font-weight: 750; font-variant-numeric: tabular-nums; }
+.account-revenue { display: grid; gap: 16px; max-width: 70rem; }
+.revenue-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
+.revenue-filters label { display: grid; gap: 5px; font-size: .875rem; font-weight: 650; }
+.revenue-filters label[hidden] { display: none; }
+.revenue-filters input { width: 7rem; }
+.revenue-filters .revenue-search { flex: 1 1 12rem; max-width: 23rem; }
+.revenue-filters .revenue-search input { width: 100%; }
+.revenue-filters :is(input, select, button) { min-height: 44px; }
+.revenue-table-wrap { overflow-x: auto; }
+.revenue-table { width: 100%; min-width: 0; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.revenue-table :is(th, td) { padding: 12px 16px; border-bottom: 0; text-align: right; }
+.revenue-table tr > :first-child { text-align: left; overflow-wrap: anywhere; }
+.revenue-table tr > :not(:first-child) { width: 1%; white-space: nowrap; }
+.revenue-work { display: flex; align-items: center; gap: 10px; color: inherit; }
+.revenue-work-title { min-width: 0; }
+.revenue-thumb { position: relative; flex: 0 0 auto; width: 68px; aspect-ratio: 4 / 3; border-radius: 8px; overflow: hidden; background: var(--line); }
+.revenue-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.revenue-video { position: absolute; bottom: 3px; left: 3px; padding: 1px 4px; border-radius: 4px; color: white; background: #20241f; font-size: .65rem; }
+.revenue-mobile-date { display: none; }
+.revenue-table thead { color: var(--muted); font-size: .875rem; }
+.revenue-table tbody tr { border-top: 1px solid var(--line); }
+.revenue-empty { padding: 18px 22px; margin: 0; }
+.revenue-pagination { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 10px; }
+@media (max-width: 600px) {
+  .revenue-table :is(th, td) { padding-inline: 10px; }
+  .revenue-table .revenue-date { display: none; }
+  .revenue-filters .revenue-search { flex-basis: 100%; max-width: none; }
+  .revenue-thumb { width: 48px; }
+  .revenue-table .revenue-mobile-date { display: block; margin-top: 4px; color: var(--muted); font-size: .75rem; font-weight: 400; }
+}
 .own-post-sales {
   display: flex;
   justify-content: space-between;
