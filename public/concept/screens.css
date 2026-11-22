@@ -271,6 +271,9 @@ html[data-theme="dark"] textarea::placeholder {
 .revenue-filters .revenue-search { flex: 1 1 12rem; max-width: 23rem; }
 .revenue-filters .revenue-search input { width: 100%; }
 .revenue-filters :is(input, select, button) { min-height: 44px; }
+.revenue-toolbar { justify-content: space-between; }
+#revenue-status { margin: 0; font-size: .875rem; }
+#revenue-status:empty { display: none; }
 .revenue-table-wrap { overflow-x: auto; }
 .revenue-table { width: 100%; min-width: 0; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .revenue-table :is(th, td) { padding: 12px 16px; border-bottom: 0; text-align: right; }
@@ -285,7 +288,10 @@ html[data-theme="dark"] textarea::placeholder {
 .revenue-table thead { color: var(--muted); font-size: .875rem; }
 .revenue-table tbody tr { border-top: 1px solid var(--line); }
 .revenue-empty { padding: 18px 22px; margin: 0; }
-.revenue-pagination { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 10px; }
+.revenue-pagination { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 12px; }
+@media (max-width: 850px) {
+  .revenue-period { flex-basis: 100%; }
+}
 @media (max-width: 600px) {
   .revenue-table :is(th, td) { padding-inline: 10px; }
   .revenue-table .revenue-date { display: none; }

@@ -15,6 +15,7 @@ import {
   profilePage,
   purchaseLibrary,
   revenuePage,
+  revenueResults,
   walletPage,
 } from "./account-extras.js";
 
@@ -754,6 +755,36 @@ function searchOwnPosts(input, delay = 250) {
   }, delay);
 }
 
+let revenueTimer, revenueRequest = 0;
+function filterRevenue(form, delay = 0) {
+  clearTimeout(revenueTimer);
+  const request = ++revenueRequest;
+  const route = location.hash;
+  const params = new URLSearchParams(route.split("?").slice(1).join("?"));
+  params.delete("page");
+  params.set("q", form.elements.q.value.trim());
+  params.set("sort", form.elements.sort.value);
+  const results = app.querySelector("#revenue-results");
+  const status = app.querySelector("#revenue-status");
+  const current = () => request === revenueRequest && form.isConnected && location.hash === route;
+  results.setAttribute("aria-busy", "true");
+  status.textContent = "Đang cập nhật kết quả…";
+  revenueTimer = setTimeout(async () => {
+    if (!current()) return;
+    try {
+      const report = await api("revenue?" + params);
+      if (!current()) return;
+      results.innerHTML = revenueResults(report, esc, postLink);
+      history.replaceState(history.state, "", "#account/revenue?" + params);
+      status.textContent = "";
+    } catch (error) {
+      if (current()) status.textContent = `${error.message} Nhấn Enter trong ô tìm để thử lại.`;
+    } finally {
+      if (request === revenueRequest && form.isConnected) results.removeAttribute("aria-busy");
+    }
+  }, delay);
+}
+
 async function account(tab = "profile", query) {
   if (!user) return loginRequired("Đăng nhập để xem tác phẩm và nội dung của bạn.");
   const tabs = [
@@ -1398,11 +1429,12 @@ app.addEventListener("click", async (event) => {
 });
 app.addEventListener("change", (event) => {
   const field = event.target;
-  if (field.form?.id === "revenue-filters" && field.name === "period") {
+  if (field.form?.id === "revenue-period" && field.name === "period") {
     const { year, month } = field.form.elements;
     year.closest("label").hidden = year.disabled = field.value === "all";
     month.closest("label").hidden = month.disabled = field.value !== "month";
   }
+  if (field.form?.id === "revenue-filters" && field.name === "sort") filterRevenue(field.form);
   if (field.form?.id === "purchase-filter") filterPurchases(field.form);
   if (field.form?.id === "browse-form" && field.matches("select"))
     filterBrowse(field.form);
@@ -1442,6 +1474,8 @@ app.addEventListener(
 
 app.addEventListener("input", (event) => {
   if (event.target.form?.id === "own-post-search") searchOwnPosts(event.target);
+  if (event.target.form?.id === "revenue-filters" && event.target.name === "q")
+    filterRevenue(event.target.form, 250);
   if (event.target.form?.id === "purchase-filter" && event.target.name === "q")
     filterPurchases(event.target.form);
   if (event.target.matches("[data-preview-start]")) {
@@ -1554,6 +1588,13 @@ app.addEventListener("submit", async (event) => {
   const form = event.target,
     data = new FormData(form);
   if (form.id === "revenue-filters") {
+    filterRevenue(form);
+    return;
+  }
+  if (form.id === "revenue-period") {
+    const filters = app.querySelector("#revenue-filters");
+    data.set("q", filters.elements.q.value.trim());
+    data.set("sort", filters.elements.sort.value);
     go("account/revenue?" + new URLSearchParams(data));
     return;
   }
